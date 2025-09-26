@@ -19,7 +19,6 @@
 ├── data/                   # 存放原始数据文件
 │   ├── train.csv           # 训练数据集
 │   ├── test.csv            # 测试数据集
-│   ├── data.csv            # 预处理后的数据集
 │   └── *.xlsx              # 原始Excel数据文件
 └── output/                 # 存放处理后的输出文件和模型
     ├── feature_dictionary.csv      # 字段描述字典
