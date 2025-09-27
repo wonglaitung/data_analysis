@@ -145,14 +145,11 @@ def create_wide_table(all_data, dimension_analysis):
             
             # 对每个维度字段进行透视
             for dim_col in dimension_cols:
-                # 只处理维度值数量在合理范围内的维度列（1-30个唯一值）
-                if dim_col in dimension_analysis and 1 <= len(dimension_analysis[dim_col]['values']) <= 30:
-                    pass  # 继续处理
-                elif dim_col in dimension_analysis and len(dimension_analysis[dim_col]['values']) > 30:
-                    print(f"维度 {dim_col} 的唯一值数量过多 ({len(dimension_analysis[dim_col]['values'])})，跳过处理")
-                    continue
-                else:
-                    continue  # 跳过没有在维度分析中找到或唯一值为0的维度
+                if dim_col in dimension_analysis and len(dimension_analysis[dim_col]['values']) <= 50:  # 降低维度值数量限制
+                    # 限制每个维度的唯一值数量
+                    if len(dimension_analysis[dim_col]['values']) > 30:
+                        print(f"维度 {dim_col} 的唯一值数量过多 ({len(dimension_analysis[dim_col]['values'])})，跳过处理")
+                        continue
                         
                     for numeric_col in numeric_cols:
                         try:
