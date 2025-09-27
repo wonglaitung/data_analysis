@@ -17,7 +17,7 @@
 ├── train.py                # GBDT+LR模型训练和预测脚本
 ├── fake.py                 # 生成假的训练和测试数据的脚本
 ├── README.md               # 项目说明文档
-├── IFLOW.md                # 项目上下文文档
+├── IFLOW.md                # 项目上下文文档（当前文件）
 ├── config/                 # 配置文件目录
 │   └── features.csv        # 特征配置文件，定义特征类型
 ├── data/                   # 存放原始数据文件
