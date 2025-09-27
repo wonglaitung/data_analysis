@@ -147,9 +147,9 @@ def create_wide_table(all_data, dimension_analysis):
             for dim_col in dimension_cols:
                 if dim_col in dimension_analysis and len(dimension_analysis[dim_col]['values']) <= 50:  # 降低维度值数量限制
                     # 限制每个维度的唯一值数量
-                    if len(dimension_analysis[dim_col]['values']) > 30:
-                        print(f"维度 {dim_col} 的唯一值数量过多 ({len(dimension_analysis[dim_col]['values'])})，跳过处理")
-                        continue
+                    #if len(dimension_analysis[dim_col]['values']) > 30:
+                    #    print(f"维度 {dim_col} 的唯一值数量过多 ({len(dimension_analysis[dim_col]['values'])})，跳过处理")
+                    #    continue
                         
                     for numeric_col in numeric_cols:
                         try:
