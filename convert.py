@@ -146,17 +146,15 @@ def create_wide_table(all_data, dimension_analysis):
             # 对每个维度字段进行透视
             for dim_col in dimension_cols:
                 if dim_col in dimension_analysis and len(dimension_analysis[dim_col]['values']) <= 50:  # 降低维度值数量限制
-                    # 限制每个维度的唯一值数量
-                    #if len(dimension_analysis[dim_col]['values']) > 30:
-                    #    print(f"维度 {dim_col} 的唯一值数量过多 ({len(dimension_analysis[dim_col]['values'])})，跳过处理")
-                    #    continue
-                        
+                    # 显示正在处理的维度
+                    print(f"正在处理维度: {dim_col} (唯一值数量: {len(dimension_analysis[dim_col]['values'])})")
+                    
                     for numeric_col in numeric_cols:
                         try:
                             # 限制数据行数，只处理前50000行
                             max_rows = 50000
                             if len(df) > max_rows:
-                                print(f"数据量过大 ({len(df)} 行)，仅处理前 {max_rows} 行")
+                                #print(f"数据量过大 ({len(df)} 行)，仅处理前 {max_rows} 行")
                                 df_subset = df.iloc[:max_rows]
                             else:
                                 df_subset = df
@@ -186,7 +184,7 @@ def create_wide_table(all_data, dimension_analysis):
                             # 监控内存使用情况
                             process = psutil.Process(os.getpid())
                             memory_info = process.memory_info()
-                            print(f"内存使用: {memory_info.rss / 1024 / 1024:.2f} MB")
+                            #print(f"内存使用: {memory_info.rss / 1024 / 1024:.2f} MB")
                             
                             # 如果内存使用超过70%，触发垃圾回收
                             if memory_info.rss / psutil.virtual_memory().total > 0.7:
@@ -200,6 +198,12 @@ def create_wide_table(all_data, dimension_analysis):
                             print(f"创建透视表时出错 ({dim_col}, {numeric_col}): {e}")
                             # 发生错误时清理变量
                             gc.collect()
+                else:
+                    # 打印未被透视处理的字段名和唯一值数量
+                    if dim_col in dimension_analysis:
+                        print(f"维度 {dim_col} 的唯一值数量过多 ({len(dimension_analysis[dim_col]['values'])})，跳过处理")
+                    else:
+                        print(f"维度 {dim_col} 未在维度分析中找到")
     
     # 合并所有宽表
     if wide_dfs:

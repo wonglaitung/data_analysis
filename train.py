@@ -4,6 +4,7 @@ import lightgbm as lgb
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import log_loss
+from sklearn.metrics import roc_auc_score, roc_curve
 from lightgbm import log_evaluation
 import matplotlib.pyplot as plt
 import os
@@ -241,8 +242,28 @@ def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
 
     tr_logloss = log_loss(y_train_lr, lr.predict_proba(x_train_lr)[:, 1])
     val_logloss = log_loss(y_val_lr, lr.predict_proba(x_val_lr)[:, 1])
+    tr_auc = roc_auc_score(y_train_lr, lr.predict_proba(x_train_lr)[:, 1])
+    val_auc = roc_auc_score(y_val_lr, lr.predict_proba(x_val_lr)[:, 1])
     print('\n✅ Train LogLoss:', tr_logloss)
     print('✅ Val LogLoss:', val_logloss)
+    print('✅ Train AUC:', tr_auc)
+    print('✅ Val AUC:', val_auc)
+
+    # 添加ROC曲线可视化
+    fpr, tpr, _ = roc_curve(y_val_lr, lr.predict_proba(x_val_lr)[:, 1])
+    plt.figure(figsize=(8, 6))
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {val_auc:.4f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC)')
+    plt.legend(loc="lower right")
+    plt.tight_layout()
+    plt.savefig("output/roc_curve.png", dpi=150, bbox_inches='tight')
+    plt.close()
+    print("✅ ROC曲线已保存至 output/roc_curve.png")
 
     # ========== Step 5.5: 输出 LR 系数（哪些叶子规则最重要） ==========
     lr_coef = pd.DataFrame({
