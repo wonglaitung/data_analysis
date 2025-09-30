@@ -16,7 +16,6 @@ os.makedirs(output_dir, exist_ok=True)
 def get_primary_key_mapping():
     """
     读取 config/primary_key.csv，返回 {(file_name, sheet_name): primary_key} 映射
-    支持 sheet_name 为空，表示该文件所有sheet都用此主键
     """
     config_dir = "config"
     primary_key_file = os.path.join(config_dir, "primary_key.csv")
@@ -35,9 +34,6 @@ def get_primary_key_mapping():
     return mapping
 
 def auto_detect_key(df):
-    """
-    自动检测主键列名
-    """
     primary_key_candidates = ['cusno', 'ci', '客户编号', '客户号']
     for col in df.columns:
         if any(candidate in col.lower() for candidate in primary_key_candidates):
@@ -45,14 +41,10 @@ def auto_detect_key(df):
     return None
 
 def process_all_excel_files():
-    """
-    读取所有Excel文件，为每个文件字段加唯一前缀（主键和元字段除外）
-    返回: all_data (按文件组织), all_primary_keys (小写集合)
-    """
     excel_files = glob.glob(os.path.join(input_dir, "*.xlsx"))
     print(f"找到 {len(excel_files)} 个Excel文件")
     all_data = defaultdict(list)
-    all_primary_keys_set = set(['__primary_key__', 'id', 'cusno', 'ci', 'index'])  # 小写
+    all_primary_keys_set = set(['__primary_key__', 'id', 'cusno', 'ci', 'index'])
 
     primary_key_mapping = get_primary_key_mapping()
 
@@ -62,14 +54,11 @@ def process_all_excel_files():
         try:
             excel_data = pd.read_excel(file_path, sheet_name=None)
             for sheet_name, df in excel_data.items():
-                # 列名转小写并去空格
                 df.columns = [col.strip().lower() if isinstance(col, str) else col for col in df.columns]
                 df['source_file'] = file_name
                 df['sheet_name'] = sheet_name
 
-                # 生成安全前缀（移除 .xlsx 和非法字符）
                 safe_prefix = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
-                # 为非元字段加前缀
                 new_columns = []
                 for col in df.columns:
                     if col in ['__primary_key__', 'source_file', 'sheet_name']:
@@ -78,7 +67,6 @@ def process_all_excel_files():
                         new_columns.append(f"{safe_prefix}_{col}")
                 df.columns = new_columns
 
-                # 确定主键
                 pk = None
                 if (file_name, sheet_name) in primary_key_mapping:
                     pk = primary_key_mapping[(file_name, sheet_name)].strip()
@@ -246,8 +234,12 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
 
         if '__primary_key__' in final_df.columns:
             final_df.rename(columns={'__primary_key__': 'Id'}, inplace=True)
-        if 'source_file' in final_df.columns:
-            final_df.drop(columns=['source_file'], inplace=True)
+
+        # === 关键修复：删除所有元字段，避免合并冲突 ===
+        meta_cols_to_drop = ['source_file', 'dimension', 'value_field', 'sheet_name']
+        cols_to_drop = [col for col in meta_cols_to_drop if col in final_df.columns]
+        if cols_to_drop:
+            final_df.drop(columns=cols_to_drop, inplace=True)
 
         file_wide_tables[file_name] = final_df
         print(f"  ✅ 完成文件 {file_name}，宽表形状: {final_df.shape}")
