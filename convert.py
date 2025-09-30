@@ -72,6 +72,14 @@ def process_all_excel_files():
                 df['source_file'] = file_name
                 df['sheet_name'] = sheet_name
 
+                # 自动加文件名前缀，防止字段冲突（主键和辅助字段不加前缀）
+                prefix = file_name
+                df.columns = [
+                    col if col in ['__primary_key__', 'source_file', 'sheet_name']
+                    else f"{prefix}_{col}"
+                    for col in df.columns
+                ]
+
                 # 主键设定逻辑
                 pk = None
                 # 优先查 file+sheet 配置（配置文件内容可能不统一大小写，需转换为小写后比较）
