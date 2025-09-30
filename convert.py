@@ -14,9 +14,6 @@ output_dir = "output"
 os.makedirs(output_dir, exist_ok=True)
 
 def get_primary_key_mapping():
-    """
-    读取 config/primary_key.csv，返回 {(file_name, sheet_name): primary_key} 映射
-    """
     config_dir = "config"
     primary_key_file = os.path.join(config_dir, "primary_key.csv")
     mapping = {}
@@ -140,6 +137,15 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
         print(f"\n=== 处理文件宽表: {file_name} ===")
         file_wide_dfs = []
 
+        # 预计算 safe_prefix（与 process_all_excel_files 一致）
+        safe_prefix = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
+
+        def strip_file_prefix(full_col):
+            expected_start = safe_prefix + '_'
+            if full_col.startswith(expected_start):
+                return full_col[len(expected_start):]
+            return full_col
+
         for df in dataframes:
             primary_key = '__primary_key__'
             if primary_key not in df.columns:
@@ -176,7 +182,14 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
                                 aggfunc='sum',
                                 fill_value=0
                             )
-                            pivot.columns = [f"{numeric_col}_{dim_col}_{col}" for col in pivot.columns]
+
+                            # === 关键修复：使用原始列名拼接，避免前缀重复 ===
+                            orig_numeric = strip_file_prefix(numeric_col)
+                            orig_dim = strip_file_prefix(dim_col)
+                            pivot.columns = [
+                                f"{safe_prefix}_{orig_numeric}_{orig_dim}_{col}"
+                                for col in pivot.columns
+                            ]
                             pivot = pivot.reset_index()
                             pivot['source_file'] = file_name
                             pivot['dimension'] = dim_col
@@ -235,7 +248,7 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
         if '__primary_key__' in final_df.columns:
             final_df.rename(columns={'__primary_key__': 'Id'}, inplace=True)
 
-        # === 关键修复：删除所有元字段，避免合并冲突 ===
+        # 删除所有元字段，避免合并冲突
         meta_cols_to_drop = ['source_file', 'dimension', 'value_field', 'sheet_name']
         cols_to_drop = [col for col in meta_cols_to_drop if col in final_df.columns]
         if cols_to_drop:
@@ -304,7 +317,7 @@ def main(coverage_threshold=0.95, max_top_k=50):
         print("❌ 未生成任何宽表")
         return
 
-    # === 保存每个文件的独立宽表（溯源用）===
+    # 保存每个文件的独立宽表
     for file_name, wide_df in file_wide_tables.items():
         safe_name = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
         output_csv = os.path.join(output_dir, f"wide_table_{safe_name}.csv")
@@ -315,7 +328,7 @@ def main(coverage_threshold=0.95, max_top_k=50):
         dict_csv = os.path.join(output_dir, f"feature_dict_{safe_name}.csv")
         feature_dict_df.to_csv(dict_csv, index=False, encoding='utf-8')
 
-    # === 合并所有文件宽表（建模用）===
+    # 合并所有文件宽表（用于建模）
     print("\n=== 合并所有文件宽表（用于建模）===")
     all_wide_dfs = list(file_wide_tables.values())
     if len(all_wide_dfs) == 1:
