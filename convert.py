@@ -147,6 +147,7 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
     """
     根据维度创建宽表，采用覆盖率阈值+最大Top-K策略防止维度膨胀
     自动适配主键设定并排除主键
+    字段命名不使用主键作为前缀
     """
     wide_dfs = []
 
@@ -156,8 +157,13 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
             if primary_key not in df.columns:
                 df[primary_key] = df.index.astype(str)
 
-            numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) and col != primary_key]
-            # 自动排除所有主键字段（全小写比较）
+            # ----关键修正：排除主键字段----
+            numeric_cols = [
+                col for col in df.columns
+                if pd.api.types.is_numeric_dtype(df[col])
+                and col != primary_key
+                and col.lower() not in all_primary_keys
+            ]
             dimension_cols = [
                 col for col in df.columns
                 if ((pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]))
@@ -180,6 +186,7 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
                             max_rows = 50000
                             df_subset = df.iloc[:max_rows] if len(df) > max_rows else df
 
+                            # ----关键修正：字段命名不含主键----
                             pivot = df_subset.pivot_table(
                                 index=primary_key,
                                 columns=dim_col,
@@ -187,7 +194,7 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
                                 aggfunc='sum',
                                 fill_value=0
                             )
-
+                            # 字段命名只用数值字段名、维度字段名和值，不用主键做前缀
                             pivot.columns = [f"{numeric_col}_{dim_col}_{col}" for col in pivot.columns]
                             pivot = pivot.reset_index()
                             pivot['source_file'] = file_name
