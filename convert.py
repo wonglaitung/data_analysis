@@ -56,8 +56,10 @@ def process_all_excel_files():
     excel_files = glob.glob(os.path.join(input_dir, "*.xlsx"))
     print(f"找到 {len(excel_files)} 个Excel文件")
     all_data = defaultdict(list)
+    # 主键候选统一小写
+    all_primary_keys_set = set(['__primary_key__', 'id', 'cusno', 'ci', 'index'])  # 全部小写
+
     primary_key_mapping = get_primary_key_mapping()
-    all_primary_keys_set = set(['__primary_key__', 'Id', 'cusno', 'ci', 'index'])  # 初始化标准主键名
 
     for file_path in excel_files:
         file_name = os.path.basename(file_path)
@@ -65,34 +67,36 @@ def process_all_excel_files():
         try:
             excel_data = pd.read_excel(file_path, sheet_name=None)
             for sheet_name, df in excel_data.items():
+                # 所有列名统一为小写
                 df.columns = [col.strip().lower() if isinstance(col, str) else col for col in df.columns]
                 df['source_file'] = file_name
                 df['sheet_name'] = sheet_name
 
                 # 主键设定逻辑
                 pk = None
-                # 优先查 file+sheet 配置
+                # 优先查 file+sheet 配置（配置文件内容可能不统一大小写，需转换为小写后比较）
                 if (file_name, sheet_name) in primary_key_mapping:
-                    pk = primary_key_mapping[(file_name, sheet_name)]
-                # 再查 file+空sheet 配置
+                    pk = primary_key_mapping[(file_name, sheet_name)].strip()
                 elif (file_name, '') in primary_key_mapping:
-                    pk = primary_key_mapping[(file_name, '')]
-                # 自动检测
+                    pk = primary_key_mapping[(file_name, '')].strip()
                 elif auto_detect_key(df):
                     pk = auto_detect_key(df)
                 else:
                     pk = 'index'
                     df[pk] = df.index.astype(str)
-                df['__primary_key__'] = df[pk] if pk in df.columns else df[pk]
+                # 主键字段名统一小写
+                pk_lower = pk.lower()
+                df['__primary_key__'] = df[pk_lower] if pk_lower in df.columns else df[pk]
                 print(f"文件主键: {pk}")
 
-                # 收集所有可能的主键字段名
-                all_primary_keys_set.add(pk)
+                # 收集所有可能的主键字段名，统一小写
+                all_primary_keys_set.add(pk_lower)
 
                 all_data[file_name].append(df)
         except Exception as e:
             print(f"处理文件 {file_path} 时出错: {e}")
-    return all_data, list(all_primary_keys_set)
+    # 返回主键列表统一为小写
+    return all_data, [k.lower() for k in all_primary_keys_set]
 
 def analyze_fields_and_dimensions(all_data):
     """
@@ -153,11 +157,12 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
                 df[primary_key] = df.index.astype(str)
 
             numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) and col != primary_key]
-            # 自动排除所有主键字段
+            # 自动排除所有主键字段（全小写比较）
             dimension_cols = [
                 col for col in df.columns
                 if ((pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]))
-                    and col not in ['source_file', 'sheet_name'] + all_primary_keys)
+                    and col not in ['source_file', 'sheet_name']
+                    and col.lower() not in all_primary_keys)
             ]
 
             for dim_col in dimension_cols:
@@ -263,7 +268,7 @@ def calculate_derived_features(wide_df):
         return wide_df
     numeric_cols = [col for col in wide_df.columns if pd.api.types.is_numeric_dtype(wide_df[col])]
     exclude_cols = ['ci', 'cusno', 'index', 'Id']
-    numeric_cols = [col for col in numeric_cols if col not in exclude_cols]
+    numeric_cols = [col for col in numeric_cols if col.lower() not in [x.lower() for x in exclude_cols]]
     max_feature_cols = 500
     if len(numeric_cols) > max_feature_cols:
         print(f"数值列数量过多 ({len(numeric_cols)})，仅使用前 {max_feature_cols} 列计算衍生特征")
