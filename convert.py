@@ -21,9 +21,6 @@ def get_primary_key(all_data):
     if os.path.exists(primary_key_file):
         try:
             df_pk = pd.read_csv(primary_key_file)
-            # 支持以下两种格式：
-            # 1. 第一列叫 primary_key，内容是主键名
-            # 2. 只有一个字段（无表头），第一行内容是主键名
             if 'primary_key' in df_pk.columns:
                 primary_key = str(df_pk['primary_key'].iloc[0]).strip()
             else:
@@ -32,9 +29,6 @@ def get_primary_key(all_data):
             return primary_key
         except Exception as e:
             print(f"读取主键配置文件 {primary_key_file} 时出错: {e}")
-            # 继续自动识别
-
-    # 自动识别主键字段
     primary_key_candidates = ['cusno', 'ci', '客户编号', '客户号']
     for file_name, dataframes in all_data.items():
         for df in dataframes:
@@ -46,19 +40,9 @@ def get_primary_key(all_data):
     return 'index'
 
 def process_all_excel_files():
-    """
-    通用机器学习宽表转化器
-    1. 读取data/目录下的所有Excel文件
-    2. 自动学习各文件的字段，分析各种维度
-    3. 根据各种维度对数据进行透视，生成用于机器学习的宽表
-    4. 自动计算一些衍生特征
-    5. 将最终的宽表和字段描述分别保存为CSV文件到output/目录中
-    """
     excel_files = glob.glob(os.path.join(input_dir, "*.xlsx"))
     print(f"找到 {len(excel_files)} 个Excel文件")
-    
     all_data = defaultdict(list)
-    
     for file_path in excel_files:
         print(f"正在处理文件: {os.path.basename(file_path)}")
         try:
@@ -73,12 +57,8 @@ def process_all_excel_files():
     return all_data
 
 def analyze_fields_and_dimensions(all_data):
-    """
-    自动学习字段和分析维度
-    """
     field_analysis = {}
     dimension_analysis = {}
-    
     for file_name, dataframes in all_data.items():
         for df in dataframes:
             for col in df.columns:
@@ -92,7 +72,6 @@ def analyze_fields_and_dimensions(all_data):
                 field_analysis[col]['files'].add(file_name)
                 sample_vals = df[col].dropna().unique()[:5]
                 field_analysis[col]['sample_values'].update(sample_vals)
-            
             for col in df.columns:
                 if (pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])) and col not in ['source_file', 'sheet_name']:
                     if col not in dimension_analysis:
@@ -105,9 +84,23 @@ def analyze_fields_and_dimensions(all_data):
                     dimension_analysis[col]['values'].update(unique_vals[:100])
     return field_analysis, dimension_analysis
 
-def create_wide_table(all_data, dimension_analysis, top_k=10):
+def get_topk_by_coverage(value_counts, coverage_threshold=0.95, max_top_k=50):
     """
-    根据维度创建宽表，采用 Top-K+Other 策略防止维度膨胀
+    根据累计覆盖率和max_top_k，返回top_k类别列表
+    """
+    total = value_counts.sum()
+    cumulative = value_counts.cumsum() / total
+    topk_idx = cumulative[cumulative <= coverage_threshold].index.tolist()
+    if len(topk_idx) < len(value_counts):
+        # 包含第一个超过阈值的
+        topk_idx.append(cumulative.index[len(topk_idx)])
+    if len(topk_idx) > max_top_k:
+        topk_idx = topk_idx[:max_top_k]
+    return topk_idx
+
+def create_wide_table(all_data, dimension_analysis, coverage_threshold=0.95, max_top_k=50):
+    """
+    根据维度创建宽表，采用覆盖率阈值+最大Top-K策略防止维度膨胀
     """
     primary_key = get_primary_key(all_data)
     print(f"使用主键字段: {primary_key}")
@@ -126,20 +119,19 @@ def create_wide_table(all_data, dimension_analysis, top_k=10):
 
             for dim_col in dimension_cols:
                 if dim_col in dimension_analysis:
-                    # Top-K+Other策略
                     value_counts = df[dim_col].value_counts()
-                    topk_values = value_counts.nlargest(top_k).index.tolist()
+                    topk_values = get_topk_by_coverage(value_counts, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
                     df[dim_col] = df[dim_col].where(df[dim_col].isin(topk_values), other='other')
                     unique_vals = df[dim_col].unique()
-                    print(f"维度: {dim_col}，Top-{top_k}值: {topk_values}, 其它归为 'other', 总列数: {len(unique_vals)}")
+                    cumulative = value_counts.cumsum() / value_counts.sum()
+                    coverage_info = cumulative[topk_values[-1]] if topk_values else 0
+                    print(f"维度: {dim_col}，Top-{len(topk_values)}值: {topk_values}, 其它归为 'other', 总列数: {len(unique_vals)}, 覆盖率: {coverage_info:.2%}")
 
                     for numeric_col in numeric_cols:
                         try:
                             max_rows = 50000
                             df_subset = df.iloc[:max_rows] if len(df) > max_rows else df
 
-                            # 可替换为 count encoding/target encoding等
-                            # 这里只做pivot sum
                             pivot = df_subset.pivot_table(
                                 index=primary_key,
                                 columns=dim_col,
@@ -221,9 +213,6 @@ def create_wide_table(all_data, dimension_analysis, top_k=10):
         return pd.DataFrame()
 
 def calculate_derived_features(wide_df):
-    """
-    计算衍生特征
-    """
     if wide_df.empty:
         return wide_df
     numeric_cols = [col for col in wide_df.columns if pd.api.types.is_numeric_dtype(wide_df[col])]
@@ -250,9 +239,6 @@ def calculate_derived_features(wide_df):
     return wide_df
 
 def generate_feature_dictionary(wide_df):
-    """
-    生成字段描述字典
-    """
     feature_dict = []
     for col in wide_df.columns:
         if pd.api.types.is_numeric_dtype(wide_df[col]):
@@ -270,11 +256,11 @@ def generate_feature_dictionary(wide_df):
         })
     return pd.DataFrame(feature_dict)
 
-def main(top_k=10):
+def main(coverage_threshold=0.95, max_top_k=50):
     all_data = process_all_excel_files()
     field_analysis, dimension_analysis = analyze_fields_and_dimensions(all_data)
     print(f"分析了 {len(field_analysis)} 个字段, {len(dimension_analysis)} 个维度")
-    wide_df = create_wide_table(all_data, dimension_analysis, top_k=top_k)
+    wide_df = create_wide_table(all_data, dimension_analysis, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
     print(f"宽表形状: {wide_df.shape}")
     wide_df = calculate_derived_features(wide_df)
     feature_dict_df = generate_feature_dictionary(wide_df)
@@ -293,4 +279,4 @@ def main(top_k=10):
     print(f"\n📊 最终数据形状: {wide_df.shape[0]} 行, {wide_df.shape[1]} 列")
 
 if __name__ == "__main__":
-    main(top_k=10)
+    main(coverage_threshold=0.95, max_top_k=50)
