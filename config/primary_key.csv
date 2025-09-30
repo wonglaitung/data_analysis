@@ -1,6 +1,5 @@
-primary_key
-cusno
-ci
-客户编号
-客户号
-Id
+file_name,sheet_name,primary_key
+分渠道汇款业务分析_20241231.xlsx,,cusno
+汇款客户维度分析数据集---对手方及国家.xlsx (10).xlsx,,cusno
+数据集-环比-带金额_20241231.xlsx,,ci
+数据集-同比-带金额_20241231(1).xlsx,,ci
