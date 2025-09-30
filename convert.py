@@ -143,13 +143,15 @@ def get_topk_by_coverage(value_counts, coverage_threshold=0.95, max_top_k=50):
         topk_idx = topk_idx[:max_top_k]
     return topk_idx
 
-def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_threshold=0.95, max_top_k=50):
+def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_threshold=0.95, max_top_k=50, field_analysis=None):
     """
     根据维度创建宽表，采用覆盖率阈值+最大Top-K策略防止维度膨胀
     自动适配主键设定并排除主键
     字段命名不使用主键作为前缀
+    返回宽表和字段来源映射
     """
     wide_dfs = []
+    wide_field_source_map = dict()
 
     for file_name, dataframes in all_data.items():
         for df in dataframes:
@@ -196,6 +198,16 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
                             )
                             # 字段命名只用数值字段名、维度字段名和值，不用主键做前缀
                             pivot.columns = [f"{numeric_col}_{dim_col}_{col}" for col in pivot.columns]
+                            # 构建字段来源映射
+                            for colname in pivot.columns:
+                                # 来源文件合并
+                                num_files = set()
+                                dim_files = set()
+                                if field_analysis:
+                                    num_files = field_analysis.get(numeric_col, {}).get('files', set())
+                                    dim_files = field_analysis.get(dim_col, {}).get('files', set())
+                                all_files = set(num_files).union(set(dim_files))
+                                wide_field_source_map[colname] = all_files
                             pivot = pivot.reset_index()
                             pivot['source_file'] = file_name
                             pivot['dimension'] = dim_col
@@ -262,10 +274,10 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
             final_df.rename(columns={'__primary_key__': 'Id'}, inplace=True)
         if 'source_file' in final_df.columns:
             final_df.drop(columns=['source_file'], inplace=True)
-        return final_df
+        return final_df, wide_field_source_map
     else:
         print("未能创建任何透视表")
-        return pd.DataFrame()
+        return pd.DataFrame(), dict()
 
 def calculate_derived_features(wide_df):
     """
@@ -296,7 +308,7 @@ def calculate_derived_features(wide_df):
     print(f"计算了衍生特征，当前宽表形状: {wide_df.shape}")
     return wide_df
 
-def generate_feature_dictionary(wide_df, field_analysis):
+def generate_feature_dictionary(wide_df, wide_field_source_map):
     """
     生成字段描述字典，并增加字段来源文件信息
     """
@@ -311,12 +323,11 @@ def generate_feature_dictionary(wide_df, field_analysis):
                 feature_type = 'text'
         else:
             feature_type = 'other'
-        # 来源文件列表
-        files = ','.join(field_analysis.get(col, {}).get('files', []))
+        files_str = ','.join(sorted(wide_field_source_map.get(col, [])))
         feature_dict.append({
             'feature_name': col,
             'feature_type': feature_type,
-            'source_files': files
+            'source_files': files_str
         })
     return pd.DataFrame(feature_dict)
 
@@ -324,10 +335,17 @@ def main(coverage_threshold=0.95, max_top_k=50):
     all_data, all_primary_keys = process_all_excel_files()
     field_analysis, dimension_analysis = analyze_fields_and_dimensions(all_data)
     print(f"分析了 {len(field_analysis)} 个字段, {len(dimension_analysis)} 个维度")
-    wide_df = create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
+    wide_df, wide_field_source_map = create_wide_table(
+        all_data,
+        dimension_analysis,
+        all_primary_keys,
+        coverage_threshold=coverage_threshold,
+        max_top_k=max_top_k,
+        field_analysis=field_analysis
+    )
     print(f"宽表形状: {wide_df.shape}")
     wide_df = calculate_derived_features(wide_df)
-    feature_dict_df = generate_feature_dictionary(wide_df, field_analysis)
+    feature_dict_df = generate_feature_dictionary(wide_df, wide_field_source_map)
     output_csv = os.path.join(output_dir, "ml_wide_table.csv")
     output_dict = os.path.join(output_dir, "feature_dictionary.csv")
     wide_df.to_csv(output_csv, index=False, encoding='utf-8')
