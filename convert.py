@@ -195,7 +195,6 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
                             max_rows = 50000
                             df_subset = df.iloc[:max_rows] if len(df) > max_rows else df
 
-                            # ----关键修正：字段命名不含主键----
                             pivot = df_subset.pivot_table(
                                 index=primary_key,
                                 columns=dim_col,
@@ -203,7 +202,6 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
                                 aggfunc='sum',
                                 fill_value=0
                             )
-                            # 字段命名只用数值字段名、维度字段名和值，不用主键做前缀
                             pivot.columns = [f"{numeric_col}_{dim_col}_{col}" for col in pivot.columns]
                             pivot = pivot.reset_index()
                             pivot['source_file'] = file_name
