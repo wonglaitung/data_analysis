@@ -51,11 +51,13 @@ def process_all_excel_files():
     3. 根据各种维度对数据进行透视，生成用于机器学习的宽表
     4. 自动计算一些衍生特征
     5. 将最终的宽表和字段描述分别保存为CSV文件到output/目录中
+    返回：all_data, all_primary_keys
     """
     excel_files = glob.glob(os.path.join(input_dir, "*.xlsx"))
     print(f"找到 {len(excel_files)} 个Excel文件")
     all_data = defaultdict(list)
     primary_key_mapping = get_primary_key_mapping()
+    all_primary_keys_set = set(['__primary_key__', 'Id', 'cusno', 'ci', 'index'])  # 初始化标准主键名
 
     for file_path in excel_files:
         file_name = os.path.basename(file_path)
@@ -84,10 +86,13 @@ def process_all_excel_files():
                 df['__primary_key__'] = df[pk] if pk in df.columns else df[pk]
                 print(f"文件主键: {pk}")
 
+                # 收集所有可能的主键字段名
+                all_primary_keys_set.add(pk)
+
                 all_data[file_name].append(df)
         except Exception as e:
             print(f"处理文件 {file_path} 时出错: {e}")
-    return all_data
+    return all_data, list(all_primary_keys_set)
 
 def analyze_fields_and_dimensions(all_data):
     """
@@ -134,9 +139,10 @@ def get_topk_by_coverage(value_counts, coverage_threshold=0.95, max_top_k=50):
         topk_idx = topk_idx[:max_top_k]
     return topk_idx
 
-def create_wide_table(all_data, dimension_analysis, coverage_threshold=0.95, max_top_k=50):
+def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_threshold=0.95, max_top_k=50):
     """
     根据维度创建宽表，采用覆盖率阈值+最大Top-K策略防止维度膨胀
+    自动适配主键设定并排除主键
     """
     wide_dfs = []
 
@@ -147,9 +153,12 @@ def create_wide_table(all_data, dimension_analysis, coverage_threshold=0.95, max
                 df[primary_key] = df.index.astype(str)
 
             numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) and col != primary_key]
-            dimension_cols = [col for col in df.columns
-                              if (pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]))
-                              and col not in ['source_file', 'sheet_name', primary_key]]
+            # 自动排除所有主键字段
+            dimension_cols = [
+                col for col in df.columns
+                if ((pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]))
+                    and col not in ['source_file', 'sheet_name'] + all_primary_keys)
+            ]
 
             for dim_col in dimension_cols:
                 if dim_col in dimension_analysis:
@@ -297,10 +306,10 @@ def generate_feature_dictionary(wide_df):
     return pd.DataFrame(feature_dict)
 
 def main(coverage_threshold=0.95, max_top_k=50):
-    all_data = process_all_excel_files()
+    all_data, all_primary_keys = process_all_excel_files()
     field_analysis, dimension_analysis = analyze_fields_and_dimensions(all_data)
     print(f"分析了 {len(field_analysis)} 个字段, {len(dimension_analysis)} 个维度")
-    wide_df = create_wide_table(all_data, dimension_analysis, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
+    wide_df = create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
     print(f"宽表形状: {wide_df.shape}")
     wide_df = calculate_derived_features(wide_df)
     feature_dict_df = generate_feature_dictionary(wide_df)
