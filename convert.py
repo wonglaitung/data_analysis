@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import glob
+import re
 from collections import defaultdict
 import psutil
 import gc
@@ -45,19 +46,13 @@ def auto_detect_key(df):
 
 def process_all_excel_files():
     """
-    通用机器学习宽表转化器
-    1. 读取data/目录下的所有Excel文件
-    2. 自动学习各文件的字段，分析各种维度
-    3. 根据各种维度对数据进行透视，生成用于机器学习的宽表
-    4. 自动计算一些衍生特征
-    5. 将最终的宽表和字段描述分别保存为CSV文件到output/目录中
-    返回：all_data, all_primary_keys
+    读取所有Excel文件，为每个文件字段加唯一前缀（主键和元字段除外）
+    返回: all_data (按文件组织), all_primary_keys (小写集合)
     """
     excel_files = glob.glob(os.path.join(input_dir, "*.xlsx"))
     print(f"找到 {len(excel_files)} 个Excel文件")
     all_data = defaultdict(list)
-    # 主键候选统一小写
-    all_primary_keys_set = set(['__primary_key__', 'id', 'cusno', 'ci', 'index'])  # 全部小写
+    all_primary_keys_set = set(['__primary_key__', 'id', 'cusno', 'ci', 'index'])  # 小写
 
     primary_key_mapping = get_primary_key_mapping()
 
@@ -67,22 +62,24 @@ def process_all_excel_files():
         try:
             excel_data = pd.read_excel(file_path, sheet_name=None)
             for sheet_name, df in excel_data.items():
-                # 所有列名统一为小写
+                # 列名转小写并去空格
                 df.columns = [col.strip().lower() if isinstance(col, str) else col for col in df.columns]
                 df['source_file'] = file_name
                 df['sheet_name'] = sheet_name
 
-                # 自动加文件名前缀，防止字段冲突（主键和辅助字段不加前缀）
-                prefix = file_name
-                df.columns = [
-                    col if col in ['__primary_key__', 'source_file', 'sheet_name']
-                    else f"{prefix}_{col}"
-                    for col in df.columns
-                ]
+                # 生成安全前缀（移除 .xlsx 和非法字符）
+                safe_prefix = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
+                # 为非元字段加前缀
+                new_columns = []
+                for col in df.columns:
+                    if col in ['__primary_key__', 'source_file', 'sheet_name']:
+                        new_columns.append(col)
+                    else:
+                        new_columns.append(f"{safe_prefix}_{col}")
+                df.columns = new_columns
 
-                # 主键设定逻辑
+                # 确定主键
                 pk = None
-                # 优先查 file+sheet 配置（配置文件内容可能不统一大小写，需转换为小写后比较）
                 if (file_name, sheet_name) in primary_key_mapping:
                     pk = primary_key_mapping[(file_name, sheet_name)].strip()
                 elif (file_name, '') in primary_key_mapping:
@@ -92,24 +89,23 @@ def process_all_excel_files():
                 else:
                     pk = 'index'
                     df[pk] = df.index.astype(str)
-                # 主键字段名统一小写
+
                 pk_lower = pk.lower()
-                df['__primary_key__'] = df[pk_lower] if pk_lower in df.columns else df[pk]
-                print(f"文件主键: {pk}")
+                if pk_lower in df.columns:
+                    df['__primary_key__'] = df[pk_lower]
+                else:
+                    df['__primary_key__'] = df[pk]
 
-                # 收集所有可能的主键字段名，统一小写
+                print(f"  使用主键: {pk}")
                 all_primary_keys_set.add(pk_lower)
-
                 all_data[file_name].append(df)
+
         except Exception as e:
             print(f"处理文件 {file_path} 时出错: {e}")
-    # 返回主键列表统一为小写
+    
     return all_data, [k.lower() for k in all_primary_keys_set]
 
 def analyze_fields_and_dimensions(all_data):
-    """
-    自动学习字段和分析维度
-    """
     field_analysis = {}
     dimension_analysis = {}
     for file_name, dataframes in all_data.items():
@@ -138,35 +134,29 @@ def analyze_fields_and_dimensions(all_data):
     return field_analysis, dimension_analysis
 
 def get_topk_by_coverage(value_counts, coverage_threshold=0.95, max_top_k=50):
-    """
-    根据累计覆盖率和max_top_k，返回top_k类别列表
-    """
     total = value_counts.sum()
+    if total == 0:
+        return []
     cumulative = value_counts.cumsum() / total
     topk_idx = cumulative[cumulative <= coverage_threshold].index.tolist()
     if len(topk_idx) < len(value_counts):
-        # 包含第一个超过阈值的类别
         topk_idx.append(cumulative.index[len(topk_idx)])
     if len(topk_idx) > max_top_k:
         topk_idx = topk_idx[:max_top_k]
     return topk_idx
 
-def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_threshold=0.95, max_top_k=50, field_analysis=None):
-    """
-    根据维度创建宽表，采用覆盖率阈值+最大Top-K策略防止维度膨胀
-    自动适配主键设定并排除主键
-    字段命名不使用主键作为前缀
-    返回宽表
-    """
-    wide_dfs = []
+def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, coverage_threshold=0.95, max_top_k=50):
+    file_wide_tables = {}
 
     for file_name, dataframes in all_data.items():
+        print(f"\n=== 处理文件宽表: {file_name} ===")
+        file_wide_dfs = []
+
         for df in dataframes:
             primary_key = '__primary_key__'
             if primary_key not in df.columns:
                 df[primary_key] = df.index.astype(str)
 
-            # ----关键修正：排除主键字段----
             numeric_cols = [
                 col for col in df.columns
                 if pd.api.types.is_numeric_dtype(df[col])
@@ -185,10 +175,6 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
                     value_counts = df[dim_col].value_counts()
                     topk_values = get_topk_by_coverage(value_counts, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
                     df[dim_col] = df[dim_col].where(df[dim_col].isin(topk_values), other='other')
-                    unique_vals = df[dim_col].unique()
-                    cumulative = value_counts.cumsum() / value_counts.sum()
-                    coverage_info = cumulative[topk_values[-1]] if topk_values else 0
-                    print(f"维度: {dim_col}，Top-{len(topk_values)}值: {topk_values}, 其它归为 'other', 总列数: {len(unique_vals)}, 覆盖率: {coverage_info:.2%}")
 
                     for numeric_col in numeric_cols:
                         try:
@@ -208,44 +194,36 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
                             pivot['dimension'] = dim_col
                             pivot['value_field'] = numeric_col
 
-                            wide_dfs.append(pivot)
+                            file_wide_dfs.append(pivot)
 
                             process = psutil.Process(os.getpid())
                             memory_info = process.memory_info()
                             if memory_info.rss / psutil.virtual_memory().total > 0.7:
                                 gc.collect()
-                                print("执行垃圾回收")
+                                print("  执行垃圾回收")
 
-                            del pivot
-                            del df_subset
+                            del pivot, df_subset
                         except Exception as e:
-                            print(f"创建透视表时出错 ({dim_col}, {numeric_col}): {e}")
-                            gc.collect()
+                            print(f"  警告：透视失败 ({dim_col}, {numeric_col}): {e}")
                 else:
-                    print(f"维度 {dim_col} 未在维度分析中找到")
+                    print(f"  跳过未分析维度: {dim_col}")
 
-    if wide_dfs:
-        print(f"共有 {len(wide_dfs)} 个数据框需要合并")
-        batch_size = 10
-        merged_dfs = []
-        for i in range(0, len(wide_dfs), batch_size):
-            batch = wide_dfs[i:i+batch_size]
-            batch_merged = pd.concat(batch, axis=0, sort=False)
-            merged_dfs.append(batch_merged)
-            print(f"合并批次 {i//batch_size + 1}/{(len(wide_dfs)-1)//batch_size + 1}")
-            gc.collect()
-        merged_df = pd.concat(merged_dfs, axis=0, sort=False)
-        del merged_dfs
+        if not file_wide_dfs:
+            print(f"  ⚠️ 文件 {file_name} 未生成任何透视表")
+            continue
+
+        print(f"  合并 {len(file_wide_dfs)} 个透视表...")
+        merged_df = pd.concat(file_wide_dfs, axis=0, sort=False)
+        del file_wide_dfs
         gc.collect()
-        
+
         numeric_columns = [col for col in merged_df.columns if pd.api.types.is_numeric_dtype(merged_df[col])]
         other_columns = [col for col in merged_df.columns if col not in numeric_columns]
-        
+
         max_agg_cols = 1000
         if len(numeric_columns) > max_agg_cols:
-            print(f"数值列数量过多 ({len(numeric_columns)})，仅处理前 {max_agg_cols} 列")
             numeric_columns = numeric_columns[:max_agg_cols]
-        
+
         agg_dict = {}
         for col in numeric_columns:
             if col != '__primary_key__':
@@ -253,31 +231,30 @@ def create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_t
         for col in other_columns:
             if col != '__primary_key__' and len(agg_dict) < max_agg_cols:
                 agg_dict[col] = 'first'
-        
-        print("正在进行分组聚合...")
+
         final_df = merged_df.groupby('__primary_key__').agg(agg_dict).reset_index()
         del merged_df
         gc.collect()
-        
-        final_numeric_columns = [col for col in final_df.columns if pd.api.types.is_numeric_dtype(final_df[col])]
-        final_df[final_numeric_columns] = final_df[final_numeric_columns].fillna(0)
-        final_other_columns = [col for col in final_df.columns if col not in final_numeric_columns]
-        for col in final_other_columns:
+
+        numeric_cols_final = [col for col in final_df.columns if pd.api.types.is_numeric_dtype(final_df[col])]
+        other_cols_final = [col for col in final_df.columns if col not in numeric_cols_final]
+
+        final_df[numeric_cols_final] = final_df[numeric_cols_final].fillna(0)
+        for col in other_cols_final:
             if col != '__primary_key__':
                 final_df[col] = final_df[col].fillna('Unknown')
+
         if '__primary_key__' in final_df.columns:
             final_df.rename(columns={'__primary_key__': 'Id'}, inplace=True)
         if 'source_file' in final_df.columns:
             final_df.drop(columns=['source_file'], inplace=True)
-        return final_df
-    else:
-        print("未能创建任何透视表")
-        return pd.DataFrame()
+
+        file_wide_tables[file_name] = final_df
+        print(f"  ✅ 完成文件 {file_name}，宽表形状: {final_df.shape}")
+
+    return file_wide_tables
 
 def calculate_derived_features(wide_df):
-    """
-    计算衍生特征
-    """
     if wide_df.empty:
         return wide_df
     numeric_cols = [col for col in wide_df.columns if pd.api.types.is_numeric_dtype(wide_df[col])]
@@ -285,14 +262,11 @@ def calculate_derived_features(wide_df):
     numeric_cols = [col for col in numeric_cols if col.lower() not in [x.lower() for x in exclude_cols]]
     max_feature_cols = 500
     if len(numeric_cols) > max_feature_cols:
-        print(f"数值列数量过多 ({len(numeric_cols)})，仅使用前 {max_feature_cols} 列计算衍生特征")
         numeric_cols = numeric_cols[:max_feature_cols]
     new_features = {}
     if len(numeric_cols) > 0:
-        print("正在计算总和特征...")
         new_features['total_sum'] = wide_df[numeric_cols].sum(axis=1)
     if len(numeric_cols) > 1:
-        print("正在计算统计特征...")
         new_features['total_mean'] = wide_df[numeric_cols].mean(axis=1)
         new_features['total_std'] = wide_df[numeric_cols].std(axis=1)
         new_features['total_max'] = wide_df[numeric_cols].max(axis=1)
@@ -300,13 +274,10 @@ def calculate_derived_features(wide_df):
     if new_features:
         new_features_df = pd.DataFrame(new_features, index=wide_df.index)
         wide_df = pd.concat([wide_df, new_features_df], axis=1)
-    print(f"计算了衍生特征，当前宽表形状: {wide_df.shape}")
+    print(f"  衍生特征计算完成，当前形状: {wide_df.shape}")
     return wide_df
 
 def generate_feature_dictionary(wide_df):
-    """
-    生成字段描述字典
-    """
     feature_dict = []
     for col in wide_df.columns:
         if pd.api.types.is_numeric_dtype(wide_df[col]):
@@ -327,31 +298,59 @@ def generate_feature_dictionary(wide_df):
 def main(coverage_threshold=0.95, max_top_k=50):
     all_data, all_primary_keys = process_all_excel_files()
     field_analysis, dimension_analysis = analyze_fields_and_dimensions(all_data)
-    print(f"分析了 {len(field_analysis)} 个字段, {len(dimension_analysis)} 个维度")
-    wide_df = create_wide_table(
+    print(f"\n分析了 {len(field_analysis)} 个字段, {len(dimension_analysis)} 个维度")
+
+    file_wide_tables = create_wide_table_per_file(
         all_data,
         dimension_analysis,
         all_primary_keys,
         coverage_threshold=coverage_threshold,
-        max_top_k=max_top_k,
-        field_analysis=field_analysis
+        max_top_k=max_top_k
     )
-    print(f"宽表形状: {wide_df.shape}")
-    wide_df = calculate_derived_features(wide_df)
-    feature_dict_df = generate_feature_dictionary(wide_df)
-    output_csv = os.path.join(output_dir, "ml_wide_table.csv")
-    output_dict = os.path.join(output_dir, "feature_dictionary.csv")
-    wide_df.to_csv(output_csv, index=False, encoding='utf-8')
-    feature_dict_df.to_csv(output_dict, index=False, encoding='utf-8')
+
+    if not file_wide_tables:
+        print("❌ 未生成任何宽表")
+        return
+
+    # === 保存每个文件的独立宽表（溯源用）===
+    for file_name, wide_df in file_wide_tables.items():
+        safe_name = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
+        output_csv = os.path.join(output_dir, f"wide_table_{safe_name}.csv")
+        wide_df.to_csv(output_csv, index=False, encoding='utf-8')
+        print(f"✅ 保存文件宽表: {output_csv}")
+
+        feature_dict_df = generate_feature_dictionary(wide_df)
+        dict_csv = os.path.join(output_dir, f"feature_dict_{safe_name}.csv")
+        feature_dict_df.to_csv(dict_csv, index=False, encoding='utf-8')
+
+    # === 合并所有文件宽表（建模用）===
+    print("\n=== 合并所有文件宽表（用于建模）===")
+    all_wide_dfs = list(file_wide_tables.values())
+    if len(all_wide_dfs) == 1:
+        global_wide = all_wide_dfs[0].copy()
+    else:
+        global_wide = all_wide_dfs[0].copy()
+        for df in all_wide_dfs[1:]:
+            global_wide = pd.merge(global_wide, df, on='Id', how='outer')
+
+    global_wide = calculate_derived_features(global_wide)
+
+    global_output = os.path.join(output_dir, "ml_wide_table_global.csv")
+    global_wide.to_csv(global_output, index=False, encoding='utf-8')
+
+    global_dict = generate_feature_dictionary(global_wide)
+    global_dict.to_csv(os.path.join(output_dir, "feature_dictionary_global.csv"), index=False, encoding='utf-8')
+
     config_dir = "config"
     os.makedirs(config_dir, exist_ok=True)
     config_file = os.path.join(config_dir, "features.csv")
-    feature_dict_df_filtered = feature_dict_df[feature_dict_df['feature_type'] != 'text']
-    feature_dict_df_filtered.to_csv(config_file, index=False, encoding='utf-8')
-    print(f"✅ 宽表已保存到: {output_csv} (UTF-8)")
-    print(f"✅ 字段描述已保存到: {output_dict} (UTF-8)")
-    print(f"✅ 过滤后的字段描述已保存到: {config_file} (UTF-8)")
-    print(f"\n📊 最终数据形状: {wide_df.shape[0]} 行, {wide_df.shape[1]} 列")
+    global_dict_filtered = global_dict[global_dict['feature_type'] != 'text']
+    global_dict_filtered.to_csv(config_file, index=False, encoding='utf-8')
+
+    print(f"\n✅ 全局宽表已保存: {global_output}")
+    print(f"✅ 全局字段字典: {os.path.join(output_dir, 'feature_dictionary_global.csv')}")
+    print(f"✅ 建模用特征列表: {config_file}")
+    print(f"\n📊 全局宽表最终形状: {global_wide.shape[0]} 行, {global_wide.shape[1]} 列")
 
 if __name__ == "__main__":
     main(coverage_threshold=0.95, max_top_k=50)
