@@ -296,9 +296,9 @@ def calculate_derived_features(wide_df):
     print(f"计算了衍生特征，当前宽表形状: {wide_df.shape}")
     return wide_df
 
-def generate_feature_dictionary(wide_df):
+def generate_feature_dictionary(wide_df, field_analysis):
     """
-    生成字段描述字典
+    生成字段描述字典，并增加字段来源文件信息
     """
     feature_dict = []
     for col in wide_df.columns:
@@ -311,9 +311,12 @@ def generate_feature_dictionary(wide_df):
                 feature_type = 'text'
         else:
             feature_type = 'other'
+        # 来源文件列表
+        files = ','.join(field_analysis.get(col, {}).get('files', []))
         feature_dict.append({
             'feature_name': col,
-            'feature_type': feature_type
+            'feature_type': feature_type,
+            'source_files': files
         })
     return pd.DataFrame(feature_dict)
 
@@ -324,7 +327,7 @@ def main(coverage_threshold=0.95, max_top_k=50):
     wide_df = create_wide_table(all_data, dimension_analysis, all_primary_keys, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
     print(f"宽表形状: {wide_df.shape}")
     wide_df = calculate_derived_features(wide_df)
-    feature_dict_df = generate_feature_dictionary(wide_df)
+    feature_dict_df = generate_feature_dictionary(wide_df, field_analysis)
     output_csv = os.path.join(output_dir, "ml_wide_table.csv")
     output_dict = os.path.join(output_dir, "feature_dictionary.csv")
     wide_df.to_csv(output_csv, index=False, encoding='utf-8')
@@ -332,7 +335,8 @@ def main(coverage_threshold=0.95, max_top_k=50):
     config_dir = "config"
     os.makedirs(config_dir, exist_ok=True)
     config_file = os.path.join(config_dir, "features.csv")
-    feature_dict_df_filtered = feature_dict_df[feature_dict_df['feature_type'] != 'text']
+    # 去掉 source_files 列
+    feature_dict_df_filtered = feature_dict_df[feature_dict_df['feature_type'] != 'text'].drop(columns=['source_files'])
     feature_dict_df_filtered.to_csv(config_file, index=False, encoding='utf-8')
     print(f"✅ 宽表已保存到: {output_csv} (UTF-8)")
     print(f"✅ 字段描述已保存到: {output_dict} (UTF-8)")
