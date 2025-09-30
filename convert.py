@@ -12,6 +12,39 @@ input_dir = "data"
 output_dir = "output"
 os.makedirs(output_dir, exist_ok=True)
 
+def get_primary_key(all_data):
+    """
+    优先从 config/primary_key.csv 读取主键字段，若不存在则自动识别
+    """
+    config_dir = "config"
+    primary_key_file = os.path.join(config_dir, "primary_key.csv")
+    if os.path.exists(primary_key_file):
+        try:
+            df_pk = pd.read_csv(primary_key_file)
+            # 支持以下两种格式：
+            # 1. 第一列叫 primary_key，内容是主键名
+            # 2. 只有一个字段（无表头），第一行内容是主键名
+            if 'primary_key' in df_pk.columns:
+                primary_key = str(df_pk['primary_key'].iloc[0]).strip()
+            else:
+                primary_key = str(df_pk.iloc[0, 0]).strip()
+            print(f"从配置文件读取主键字段: {primary_key}")
+            return primary_key
+        except Exception as e:
+            print(f"读取主键配置文件 {primary_key_file} 时出错: {e}")
+            # 继续自动识别
+
+    # 自动识别主键字段
+    primary_key_candidates = ['cusno', 'ci', '客户编号', '客户号']
+    for file_name, dataframes in all_data.items():
+        for df in dataframes:
+            for col in df.columns:
+                if any(candidate in col.lower() for candidate in primary_key_candidates):
+                    print(f"自动识别到主键字段: {col}")
+                    return col
+    print("未找到主键字段，使用索引作为主键")
+    return 'index'
+
 def process_all_excel_files():
     """
     通用机器学习宽表转化器
@@ -82,7 +115,7 @@ def analyze_fields_and_dimensions(all_data):
             
             # 分析可能的维度（数值型字段除外）
             for col in df.columns:
-                if df[col].dtype in ['object', 'string'] and col not in ['source_file', 'sheet_name']:
+                if (pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])) and col not in ['source_file', 'sheet_name']:
                     if col not in dimension_analysis:
                         dimension_analysis[col] = {
                             'files': set(),
@@ -102,26 +135,8 @@ def create_wide_table(all_data, dimension_analysis):
     """
     根据维度创建宽表
     """
-    # 确定主键字段（假设为cusno或CI等客户标识字段）
-    primary_key = None
-    primary_key_candidates = ['cusno', 'ci', '客户编号', '客户号']
-    
-    # 查找主键字段
-    for file_name, dataframes in all_data.items():
-        for df in dataframes:
-            for col in df.columns:
-                if any(candidate in col.lower() for candidate in primary_key_candidates):
-                    primary_key = col
-                    break
-            if primary_key:
-                break
-        if primary_key:
-            break
-    
-    if not primary_key:
-        print("未找到主键字段，使用索引作为主键")
-        primary_key = 'index'
-    
+    # 主键字段
+    primary_key = get_primary_key(all_data)
     print(f"使用主键字段: {primary_key}")
     
     # 创建宽表
@@ -135,26 +150,22 @@ def create_wide_table(all_data, dimension_analysis):
                 df[primary_key] = df.index.astype(str)
             
             # 获取数值型字段用于聚合
-            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-            numeric_cols = [col for col in numeric_cols if col not in [primary_key]]
+            numeric_cols = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col]) and col != primary_key]
             
             # 获取维度字段
             dimension_cols = [col for col in df.columns 
-                            if df[col].dtype in ['object', 'string'] 
+                            if (pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])) 
                             and col not in ['source_file', 'sheet_name', primary_key]]
             
             # 对每个维度字段进行透视
             for dim_col in dimension_cols:
                 if dim_col in dimension_analysis and len(dimension_analysis[dim_col]['values']) <= 50:  # 降低维度值数量限制
-                    # 显示正在处理的维度
                     print(f"正在处理维度: {dim_col} (唯一值数量: {len(dimension_analysis[dim_col]['values'])})")
                     
                     for numeric_col in numeric_cols:
                         try:
-                            # 限制数据行数，只处理前50000行
                             max_rows = 50000
                             if len(df) > max_rows:
-                                #print(f"数据量过大 ({len(df)} 行)，仅处理前 {max_rows} 行")
                                 df_subset = df.iloc[:max_rows]
                             else:
                                 df_subset = df
@@ -184,22 +195,16 @@ def create_wide_table(all_data, dimension_analysis):
                             # 监控内存使用情况
                             process = psutil.Process(os.getpid())
                             memory_info = process.memory_info()
-                            #print(f"内存使用: {memory_info.rss / 1024 / 1024:.2f} MB")
-                            
-                            # 如果内存使用超过70%，触发垃圾回收
                             if memory_info.rss / psutil.virtual_memory().total > 0.7:
                                 gc.collect()
                                 print("执行垃圾回收")
                                 
-                            # 清理临时变量
                             del pivot
                             del df_subset
                         except Exception as e:
                             print(f"创建透视表时出错 ({dim_col}, {numeric_col}): {e}")
-                            # 发生错误时清理变量
                             gc.collect()
                 else:
-                    # 打印未被透视处理的字段名和唯一值数量
                     if dim_col in dimension_analysis:
                         print(f"维度 {dim_col} 的唯一值数量过多 ({len(dimension_analysis[dim_col]['values'])})，跳过处理")
                     else:
@@ -209,7 +214,6 @@ def create_wide_table(all_data, dimension_analysis):
     if wide_dfs:
         print(f"共有 {len(wide_dfs)} 个数据框需要合并")
         
-        # 分批合并数据框以减少内存使用
         batch_size = 10
         merged_dfs = []
         
@@ -218,56 +222,45 @@ def create_wide_table(all_data, dimension_analysis):
             batch_merged = pd.concat(batch, axis=0, sort=False)
             merged_dfs.append(batch_merged)
             print(f"合并批次 {i//batch_size + 1}/{(len(wide_dfs)-1)//batch_size + 1}")
-            
-            # 每合并一批就清理内存
             gc.collect()
         
-        # 合并所有批次
         merged_df = pd.concat(merged_dfs, axis=0, sort=False)
-        del merged_dfs  # 清理中间变量
+        del merged_dfs
         gc.collect()
         
-        # 按主键分组，对数值列求和，对其他列取第一个值
-        numeric_columns = merged_df.select_dtypes(include=['number']).columns.tolist()
+        numeric_columns = [col for col in merged_df.columns if pd.api.types.is_numeric_dtype(merged_df[col])]
         other_columns = [col for col in merged_df.columns if col not in numeric_columns]
         
-        # 限制聚合的列数以防止内存爆炸
         max_agg_cols = 1000
         if len(numeric_columns) > max_agg_cols:
             print(f"数值列数量过多 ({len(numeric_columns)})，仅处理前 {max_agg_cols} 列")
             numeric_columns = numeric_columns[:max_agg_cols]
         
-        # 创建聚合字典
         agg_dict = {}
         for col in numeric_columns:
             if col != primary_key:
                 agg_dict[col] = 'sum'
         
         for col in other_columns:
-            if col != primary_key and len(agg_dict) < max_agg_cols:  # 限制总列数
+            if col != primary_key and len(agg_dict) < max_agg_cols:
                 agg_dict[col] = 'first'
         
-        # 按主键分组聚合
         print("正在进行分组聚合...")
         final_df = merged_df.groupby(primary_key).agg(agg_dict).reset_index()
-        del merged_df  # 清理中间变量
+        del merged_df
         gc.collect()
         
-        # 填充NaN值
-        final_numeric_columns = final_df.select_dtypes(include=['number']).columns
+        final_numeric_columns = [col for col in final_df.columns if pd.api.types.is_numeric_dtype(final_df[col])]
         final_df[final_numeric_columns] = final_df[final_numeric_columns].fillna(0)
         
-        # 填充其他列的NaN值
         final_other_columns = [col for col in final_df.columns if col not in final_numeric_columns]
         for col in final_other_columns:
             if col != primary_key:
                 final_df[col] = final_df[col].fillna('Unknown')
         
-        # 将主键字段重命名为'Id'
         if primary_key in final_df.columns:
             final_df.rename(columns={primary_key: 'Id'}, inplace=True)
         
-        # 删除source_file列
         if 'source_file' in final_df.columns:
             final_df.drop(columns=['source_file'], inplace=True)
         
@@ -284,25 +277,21 @@ def calculate_derived_features(wide_df):
         return wide_df
     
     # 获取所有数值型字段（排除标识列）
-    numeric_cols = wide_df.select_dtypes(include=['number']).columns.tolist()
+    numeric_cols = [col for col in wide_df.columns if pd.api.types.is_numeric_dtype(wide_df[col])]
     exclude_cols = ['ci', 'cusno', 'index']  # 可能的主键列
     numeric_cols = [col for col in numeric_cols if col not in exclude_cols]
     
-    # 限制用于计算衍生特征的列数，防止内存问题
     max_feature_cols = 500
     if len(numeric_cols) > max_feature_cols:
         print(f"数值列数量过多 ({len(numeric_cols)})，仅使用前 {max_feature_cols} 列计算衍生特征")
         numeric_cols = numeric_cols[:max_feature_cols]
     
-    # 创建一个字典来存储新特征
     new_features = {}
     
-    # 计算总和特征
     if len(numeric_cols) > 0:
         print("正在计算总和特征...")
         new_features['total_sum'] = wide_df[numeric_cols].sum(axis=1)
     
-    # 计算统计特征
     if len(numeric_cols) > 1:
         print("正在计算统计特征...")
         new_features['total_mean'] = wide_df[numeric_cols].mean(axis=1)
@@ -310,7 +299,6 @@ def calculate_derived_features(wide_df):
         new_features['total_max'] = wide_df[numeric_cols].max(axis=1)
         new_features['total_min'] = wide_df[numeric_cols].min(axis=1)
     
-    # 使用pd.concat一次性添加所有新列，避免DataFrame碎片化
     if new_features:
         new_features_df = pd.DataFrame(new_features, index=wide_df.index)
         wide_df = pd.concat([wide_df, new_features_df], axis=1)
@@ -325,11 +313,10 @@ def generate_feature_dictionary(wide_df):
     feature_dict = []
     
     for col in wide_df.columns:
-        # 确定字段类型
-        if wide_df[col].dtype in ['int64', 'float64']:
+        # 用 pandas API 判断字段类型
+        if pd.api.types.is_numeric_dtype(wide_df[col]):
             feature_type = 'continuous'
-        elif wide_df[col].dtype in ['object', 'string']:
-            # 如果唯一值较少，认为是分类变量
+        elif pd.api.types.is_string_dtype(wide_df[col]) or pd.api.types.is_object_dtype(wide_df[col]):
             if wide_df[col].nunique() <= 10:
                 feature_type = 'category'
             else:
@@ -374,7 +361,6 @@ def main():
     os.makedirs(config_dir, exist_ok=True)
     config_file = os.path.join(config_dir, "features.csv")
     
-    # 读取字段字典文件
     feature_dict_df_filtered = feature_dict_df[feature_dict_df['feature_type'] != 'text']
     feature_dict_df_filtered.to_csv(config_file, index=False, encoding='utf-8')
     
