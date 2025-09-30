@@ -82,6 +82,7 @@ def process_all_excel_files():
                     pk = 'index'
                     df[pk] = df.index.astype(str)
                 df['__primary_key__'] = df[pk] if pk in df.columns else df[pk]
+                print(f"文件主键: {pk}")
 
                 all_data[file_name].append(df)
         except Exception as e:
