@@ -138,6 +138,7 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
     for file_name, dataframes in all_data.items():
         print(f"\n=== 处理文件宽表: {file_name} ===")
         file_wide_dfs = []
+        category_features = []  # 用于存储类别型特征
 
         safe_prefix = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
 
@@ -165,11 +166,15 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
                     and col.lower() not in all_primary_keys)
             ]
 
+            # 保存原始的类别型特征列
             for dim_col in dimension_cols:
                 if dim_col in dimension_analysis:
                     value_counts = df[dim_col].value_counts()
                     topk_values = get_topk_by_coverage(value_counts, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
                     df[dim_col] = df[dim_col].where(df[dim_col].isin(topk_values), other='other')
+                    
+                    # 保存类别型特征列，用于后续合并
+                    category_features.append(dim_col)
 
                     for numeric_col in numeric_cols:
                         try:
@@ -207,41 +212,110 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
                 else:
                     print(f"  跳过未分析维度: {dim_col}")
 
-        if not file_wide_dfs:
+        if not file_wide_dfs and not category_features:
             print(f"  ⚠️ 文件 {file_name} 未生成任何透视表")
             continue
 
-        print(f"  合并 {len(file_wide_dfs)} 个透视表...")
-        merged_df = pd.concat(file_wide_dfs, axis=0, sort=False)
-        del file_wide_dfs
-        gc.collect()
+        final_df = None
+        
+        # 如果有透视表数据，则处理透视表
+        if file_wide_dfs:
+            print(f"  合并 {len(file_wide_dfs)} 个透视表...")
+            merged_df = pd.concat(file_wide_dfs, axis=0, sort=False)
+            del file_wide_dfs
+            gc.collect()
 
-        numeric_columns = [col for col in merged_df.columns if pd.api.types.is_numeric_dtype(merged_df[col])]
-        other_columns = [col for col in merged_df.columns if col not in numeric_columns]
+            numeric_columns = [col for col in merged_df.columns if pd.api.types.is_numeric_dtype(merged_df[col])]
+            other_columns = [col for col in merged_df.columns if col not in numeric_columns]
 
-        max_agg_cols = 1000
-        if len(numeric_columns) > max_agg_cols:
-            numeric_columns = numeric_columns[:max_agg_cols]
+            max_agg_cols = 1000
+            if len(numeric_columns) > max_agg_cols:
+                numeric_columns = numeric_columns[:max_agg_cols]
 
-        agg_dict = {}
-        for col in numeric_columns:
-            if col != '__primary_key__':
-                agg_dict[col] = 'sum'
-        for col in other_columns:
-            if col != '__primary_key__' and len(agg_dict) < max_agg_cols:
-                agg_dict[col] = 'first'
+            agg_dict = {}
+            for col in numeric_columns:
+                if col != '__primary_key__':
+                    agg_dict[col] = 'sum'
+            for col in other_columns:
+                if col != '__primary_key__' and len(agg_dict) < max_agg_cols:
+                    agg_dict[col] = 'first'
 
-        final_df = merged_df.groupby('__primary_key__').agg(agg_dict).reset_index()
-        del merged_df
-        gc.collect()
+            final_df = merged_df.groupby('__primary_key__').agg(agg_dict).reset_index()
+            del merged_df
+            gc.collect()
 
-        numeric_cols_final = [col for col in final_df.columns if pd.api.types.is_numeric_dtype(final_df[col])]
-        other_cols_final = [col for col in final_df.columns if col not in numeric_cols_final]
+            numeric_cols_final = [col for col in final_df.columns if pd.api.types.is_numeric_dtype(final_df[col])]
+            other_cols_final = [col for col in final_df.columns if col not in numeric_cols_final]
 
-        final_df[numeric_cols_final] = final_df[numeric_cols_final].fillna(0)
-        for col in other_cols_final:
-            if col != '__primary_key__':
-                final_df[col] = final_df[col].fillna('Unknown')
+            final_df[numeric_cols_final] = final_df[numeric_cols_final].fillna(0)
+            for col in other_cols_final:
+                if col != '__primary_key__':
+                    final_df[col] = final_df[col].fillna('Unknown')
+        else:
+            # 如果没有透视表数据，创建一个只包含主键的DataFrame
+            all_dfs = dataframes
+            if all_dfs:
+                first_df = all_dfs[0]
+                final_df = pd.DataFrame({'__primary_key__': first_df['__primary_key__'].unique()})
+        
+        # 添加原始的类别型特征列（转换为数值型）
+        if category_features and dataframes:
+            # 获取所有数据帧中的类别特征并合并
+            all_category_data = []
+            for df in dataframes:
+                cols_to_include = ['__primary_key__'] + [col for col in category_features if col in df.columns]
+                if cols_to_include:
+                    # 对类别特征进行去重和聚合
+                    category_df = df[cols_to_include].copy()
+                    all_category_data.append(category_df)
+            
+            if all_category_data:
+                # 合并所有类别特征数据
+                combined_category_df = pd.concat(all_category_data, axis=0, sort=False)
+                
+                # 对类别特征进行聚合（取第一个值）
+                category_agg_dict = {}
+                for col in combined_category_df.columns:
+                    if col != '__primary_key__':
+                        category_agg_dict[col] = 'first'
+                
+                if category_agg_dict:
+                    unique_category_df = combined_category_df.groupby('__primary_key__').agg(category_agg_dict).reset_index()
+                    
+                    # 对类别特征进行One-Hot编码
+                    encoded_dfs = []
+                    for col in category_agg_dict.keys():
+                        if col in unique_category_df.columns:
+                            # 填充缺失值
+                            unique_category_df[col] = unique_category_df[col].fillna('Unknown')
+                            # One-Hot编码
+                            onehot_df = pd.get_dummies(unique_category_df[col], prefix=col)
+                            # 添加主键列
+                            onehot_df['__primary_key__'] = unique_category_df['__primary_key__'].values
+                            encoded_dfs.append(onehot_df)
+                    
+                    # 合并所有One-Hot编码的特征
+                    if encoded_dfs:
+                        combined_encoded_df = encoded_dfs[0]
+                        for encoded_df in encoded_dfs[1:]:
+                            combined_encoded_df = pd.merge(combined_encoded_df, encoded_df, on='__primary_key__', how='outer')
+                        
+                        # 将编码后的特征合并到最终DataFrame中
+                        if final_df is not None:
+                            final_df = pd.merge(final_df, combined_encoded_df, on='__primary_key__', how='left')
+                        else:
+                            final_df = combined_encoded_df
+
+        if final_df is None:
+            print(f"  ⚠️ 文件 {file_name} 无法生成宽表")
+            continue
+
+        # 填充类别特征的缺失值
+        category_cols = [col for col in final_df.columns 
+                        if (pd.api.types.is_string_dtype(final_df[col]) or pd.api.types.is_object_dtype(final_df[col]))
+                        and col != '__primary_key__']
+        for col in category_cols:
+            final_df[col] = final_df[col].fillna('Unknown')
 
         if '__primary_key__' in final_df.columns:
             final_df.rename(columns={'__primary_key__': 'Id'}, inplace=True)
