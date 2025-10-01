@@ -51,19 +51,20 @@ def process_all_excel_files():
         try:
             excel_data = pd.read_excel(file_path, sheet_name=None)
             for sheet_name, df in excel_data.items():
+                # 列名转小写并去空格
                 df.columns = [col.strip().lower() if isinstance(col, str) else col for col in df.columns]
-                df['source_file'] = file_name
-                df['sheet_name'] = sheet_name
 
+                # === 关键：不再添加 source_file / sheet_name ===
                 safe_prefix = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
                 new_columns = []
                 for col in df.columns:
-                    if col in ['__primary_key__', 'source_file', 'sheet_name']:
+                    if col == '__primary_key__':
                         new_columns.append(col)
                     else:
                         new_columns.append(f"{safe_prefix}_{col}")
                 df.columns = new_columns
 
+                # 确定主键
                 pk = None
                 if (file_name, sheet_name) in primary_key_mapping:
                     pk = primary_key_mapping[(file_name, sheet_name)].strip()
@@ -107,7 +108,8 @@ def analyze_fields_and_dimensions(all_data):
                 sample_vals = df[col].dropna().unique()[:5]
                 field_analysis[col]['sample_values'].update(sample_vals)
             for col in df.columns:
-                if (pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])) and col not in ['source_file', 'sheet_name']:
+                # === 不再排除 source_file/sheet_name（因为它们不存在）===
+                if (pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])) and col != '__primary_key__':
                     if col not in dimension_analysis:
                         dimension_analysis[col] = {
                             'files': set(),
@@ -137,7 +139,6 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
         print(f"\n=== 处理文件宽表: {file_name} ===")
         file_wide_dfs = []
 
-        # 预计算 safe_prefix（与 process_all_excel_files 一致）
         safe_prefix = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
 
         def strip_file_prefix(full_col):
@@ -160,7 +161,7 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
             dimension_cols = [
                 col for col in df.columns
                 if ((pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]))
-                    and col not in ['source_file', 'sheet_name']
+                    and col != '__primary_key__'
                     and col.lower() not in all_primary_keys)
             ]
 
@@ -183,7 +184,6 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
                                 fill_value=0
                             )
 
-                            # === 关键修复：使用原始列名拼接，避免前缀重复 ===
                             orig_numeric = strip_file_prefix(numeric_col)
                             orig_dim = strip_file_prefix(dim_col)
                             pivot.columns = [
@@ -191,10 +191,8 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
                                 for col in pivot.columns
                             ]
                             pivot = pivot.reset_index()
-                            pivot['source_file'] = file_name
-                            pivot['dimension'] = dim_col
-                            pivot['value_field'] = numeric_col
 
+                            # === 关键：不再添加 source_file / dimension / value_field ===
                             file_wide_dfs.append(pivot)
 
                             process = psutil.Process(os.getpid())
@@ -248,12 +246,7 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
         if '__primary_key__' in final_df.columns:
             final_df.rename(columns={'__primary_key__': 'Id'}, inplace=True)
 
-        # 删除所有元字段，避免合并冲突
-        meta_cols_to_drop = ['source_file', 'dimension', 'value_field', 'sheet_name']
-        cols_to_drop = [col for col in meta_cols_to_drop if col in final_df.columns]
-        if cols_to_drop:
-            final_df.drop(columns=cols_to_drop, inplace=True)
-
+        # === 不再需要删除元字段，因为从未添加过 ===
         file_wide_tables[file_name] = final_df
         print(f"  ✅ 完成文件 {file_name}，宽表形状: {final_df.shape}")
 
