@@ -122,11 +122,6 @@ def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
     target = train.pop('Label')
     test = data[data['Label'] == -1].copy()
     test.drop(['Label'], axis=1, inplace=True)
-    
-    # 移除非数值特征
-    non_numeric_features = ['dimension', 'value_field']
-    train.drop(columns=non_numeric_features, inplace=True, errors='ignore')
-    test.drop(columns=non_numeric_features, inplace=True, errors='ignore')
 
     # 划分训练/验证集
     x_train, x_val, y_train, y_val = train_test_split(
