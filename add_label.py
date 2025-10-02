@@ -13,7 +13,7 @@ def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', label_column=
     """
     # 读取大宽表
     print("正在读取大宽表...")
-    df_wide = pd.read_csv('/data/data_analysis/output/ml_wide_table_global.csv')
+    df_wide = pd.read_csv('./output/ml_wide_table_global.csv')
     
     # 读取Excel文件中的指定工作表
     print(f"正在读取Excel文件: {excel_file_path}, 工作表: {sheet_name}")
@@ -54,19 +54,19 @@ def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', label_column=
     print(f"Label值分布:\n{df_merged['Label'].value_counts(dropna=False)}")
     
     # 保存带标签的大宽表
-    output_path = '/data/data_analysis/output/ml_wide_table_with_label.csv'
+    output_path = './output/ml_wide_table_with_label.csv'
     df_merged.to_csv(output_path, index=False)
     print(f"带标签的大宽表已保存到: {output_path}")
     
     # 参考fake.py，将大宽表的真实数据复制到train.csv和test.csv
     # 保存到data/train.csv
-    train_path = '/data/data_analysis/data/train.csv'
+    train_path = './data/train.csv'
     df_merged.to_csv(train_path, index=False)
     print(f"带标签的大宽表已保存到: {train_path}")
     
     # 复制前100条数据到test.csv，并删除Label字段
     test_df = df_merged.head(100).drop('Label', axis=1)
-    test_path = '/data/data_analysis/data/test.csv'
+    test_path = './data/test.csv'
     test_df.to_csv(test_path, index=False)
     print(f"前100条数据（无标签）已保存到: {test_path}")
     
@@ -74,7 +74,7 @@ def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', label_column=
 
 if __name__ == "__main__":
     # 默认参数
-    excel_file_path = '/data/data_analysis/label/现金管理客户数全量2025_08（销户因素调整后).xlsx'
+    excel_file_path = './label/现金管理客户数全量2025_08（销户因素调整后).xlsx'
     sheet_name = '2024Raw'
     label_column = '本地支薪'
     
