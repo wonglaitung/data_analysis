@@ -20,7 +20,6 @@
 ├── README.md               # 项目说明文档
 ├── IFLOW.md                # 项目上下文文档（当前文件）
 ├── config/                 # 配置文件目录
-│   ├── features.csv        # 特征配置文件，定义特征类型
 │   ├── primary_key.csv     # 主键配置文件，定义各Excel文件的主键字段
 │   └── category_type.csv   # 类别特征配置文件，定义业务上应视为类别特征的数值型字段
 ├── data/                   # 存放原始数据文件
