@@ -12,30 +12,29 @@
 
 ```
 /data/data_analysis/
+├── add_label.py            # 从Excel标签文件中提取标签并添加到宽表
 ├── convert.py              # 主要的数据转换脚本，将Excel文件转换为宽表
-├── trim_excel.py           # 用于裁剪Excel文件的脚本
-├── train.py                # GBDT+LR模型训练和预测脚本
 ├── fake.py                 # 生成假的训练和测试数据的脚本
-├── add_label.py            # 从Excel文件中提取标签并合并到宽表的脚本
+├── train.py                # GBDT+LR模型训练和预测脚本
+├── trim_excel.py           # 用于裁剪Excel文件的脚本
 ├── README.md               # 项目说明文档
-├── IFLOW.md                # 项目上下文文档
+├── IFLOW.md                # 项目上下文文档（当前文件）
 ├── config/                 # 配置文件目录
+│   ├── features.csv        # 特征配置文件，定义特征类型
 │   ├── primary_key.csv     # 主键配置文件，定义各Excel文件的主键字段
-│   ├── category_type.csv   # 类别特征配置文件，定义业务上应视为类别特征的数值型字段
-│   ├── lable_key.csv       # 标签文件配置文件，定义标签Excel文件的信息
-│   └── features.csv        # 特征配置文件，定义特征类型
+│   ├── category_type.csv   # 类别特征类型配置文件
+│   └── lable_key.csv       # 标签文件配置文件
 ├── data/                   # 存放原始数据文件
 │   ├── train.csv           # 训练数据集
 │   ├── test.csv            # 测试数据集
 │   ├── data.csv            # 预处理后的训练和测试数据合并文件
-│   ├── predicted_test.csv  # 预测结果文件
 │   └── *.xlsx              # 原始Excel数据文件
 └── output/                 # 存放处理后的输出文件和模型
     ├── feature_dict_*.csv              # 各Excel文件的字段描述字典
     ├── wide_table_*.csv                # 各Excel文件生成的宽表
     ├── feature_dictionary_global.csv   # 全局字段描述字典
     ├── ml_wide_table_global.csv        # 用于机器学习的全局宽表
-    ├── ml_wide_table_with_label.csv    # 带标签的全局宽表
+    ├── ml_wide_table_with_label.csv    # 带有真实标签的全局宽表
     ├── gbdt_feature_importance.csv     # GBDT模型特征重要性
     ├── lr_leaf_coefficients.csv        # LR模型叶子节点系数
     ├── shap_summary_plot.png           # SHAP特征重要性图
@@ -96,13 +95,13 @@ file_name,column_name,feature_type
 - 将每个文件的宽表和字段描述分别保存为CSV文件到`output/`目录中
 - 合并所有文件宽表生成全局宽表`ml_wide_table_global.csv`
 - 将过滤后的特征字典保存到`config/features.csv`供模型训练使用
+- 从`config/primary_key.csv`读取各文件的主键配置
+- 从`config/category_type.csv`读取需要强制作为类别特征的字段配置
 - 对类别特征进行One-Hot编码并合并到最终宽表中
 
-程序会读取`config/primary_key.csv`配置文件来确定各Excel文件的主键字段。如果该文件不存在，程序会自动检测主键字段或使用默认的索引作为主键。
+### 2. 标签添加 (add_label.py)
 
-### 2. 标签数据处理 (add_label.py)
-
-- 从指定Excel文件中读取标签数据（根据`config/lable_key.csv`配置文件中的设置）
+- 从指定Excel文件中读取标签数据（"本地支薪"字段）
 - 处理ID字段的前导零问题，确保数据正确匹配
 - 将标签数据合并到全局宽表中
 - 生成带标签的训练数据集`train.csv`和测试数据集`test.csv`
@@ -114,7 +113,14 @@ file_name,column_name,feature_type
 - 保留每个文件的前100条记录
 - 将处理后的数据保存回原文件
 
-### 4. 模型训练与预测 (train.py)
+### 4. 假数据生成 (fake.py)
+
+- 读取`output/ml_wide_table_global.csv`文件
+- 在Id后面增加Label字段，前1000个样本标记为1，其余为0
+- 保存到`data/train.csv`
+- 复制前100条数据到`data/test.csv`，并删除Label字段
+
+### 5. 模型训练与预测 (train.py)
 
 - 从`config/features.csv`读取特征定义
 - 对类别特征进行One-Hot编码
@@ -125,27 +131,6 @@ file_name,column_name,feature_type
 - 保存模型和相关元数据用于API服务
 - 生成ROC曲线图
 - 支持早停机制，自动确定最佳迭代次数
-
-### 5. 假数据生成 (fake.py)
-
-- 读取`output/ml_wide_table_global.csv`文件
-- 在Id后面增加Label字段，前1000个样本标记为1，其余为0
-- 保存到`data/train.csv`
-- 复制前100条数据到`data/test.csv`，并删除Label字段
-
-## 数据说明
-
-- `train.csv`: 训练数据集，包含标签字段Label
-- `test.csv`: 测试数据集，不包含标签字段
-- `data.csv`: 预处理后的训练和测试数据合并文件
-- `predicted_test.csv`: 预测结果文件
-- `*.xlsx`: 原始的Excel数据集，包含各种金融业务相关的数据
-- `ml_wide_table_global.csv`: 经过处理后生成的全局宽表，用于机器学习
-- `ml_wide_table_with_label.csv`: 带标签的全局宽表
-- `feature_dictionary_global.csv`: 全局宽表中各字段的描述信息
-- `features.csv`: 特征配置文件，定义特征类型（连续/类别）
-- `gbdt_model.pkl`和`lr_model.pkl`: 训练好的GBDT和LR模型
-- `submission_gbdt_lr.csv`: 模型预测结果文件
 
 ## 配置文件说明
 
@@ -176,6 +161,31 @@ file_name,column_name,feature_type
 - `feature_name`: 特征名称
 - `feature_type`: 特征类型（continuous/category）
 
+## 数据说明
+
+- `train.csv`: 训练数据集，包含标签字段Label
+- `test.csv`: 测试数据集，不包含标签字段
+- `*.xlsx`: 原始的Excel数据集，包含各种金融业务相关的数据
+- `ml_wide_table_global.csv`: 经过处理后生成的全局宽表，用于机器学习
+- `ml_wide_table_with_label.csv`: 带有真实标签的全局宽表
+- `feature_dictionary_global.csv`: 全局宽表中各字段的描述信息
+- `features.csv`: 特征配置文件，定义特征类型（连续/类别）
+- `gbdt_model.pkl`和`lr_model.pkl`: 训练好的GBDT和LR模型
+- `submission_gbdt_lr.csv`: 模型预测结果文件
+
+## 模型评估结果
+
+### 模型性能指标
+- **训练集 LogLoss**: 0.0348
+- **验证集 LogLoss**: 0.0431
+- **训练集 AUC**: 0.896
+- **验证集 AUC**: 0.814
+
+### 结果解释
+- LogLoss 非常小，说明模型预测概率非常接近真实标签
+- AUC 超过 0.8，说明模型具有很好的区分能力
+- 模型没有明显过拟合，具有良好的泛化能力
+
 ## 使用说明
 
 ### 运行数据转换
@@ -186,13 +196,13 @@ python convert.py
 
 该脚本会处理`data/`目录下的所有Excel文件，并在`output/`目录生成各文件的宽表和特征字典，以及全局宽表`ml_wide_table_global.csv`和`feature_dictionary_global.csv`，同时将过滤后的特征字典保存到`config/features.csv`。
 
-### 处理标签数据
+### 添加真实标签
 
 ```bash
 python add_label.py
 ```
 
-该脚本会根据`config/lable_key.csv`配置文件中的设置，从指定Excel文件中提取标签数据并合并到全局宽表中，生成带标签的训练数据集和测试数据集。
+该脚本会从指定Excel文件中提取标签数据并合并到全局宽表中，生成带标签的训练数据集和测试数据集。
 
 ### 裁剪Excel文件
 
