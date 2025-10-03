@@ -63,6 +63,8 @@ file_name,column_name,feature_type
 分渠道汇款业务分析_20241231.xlsx,BELONG_BRNO,category
 ```
 
+如果`category_type.csv`文件不存在，程序会完全依赖自动特征类型识别机制。
+
 ### 2. 自动特征类型识别
 对于未在`category_type.csv`中配置的字段，程序会根据以下规则自动识别特征类型：
 
@@ -92,6 +94,8 @@ file_name,column_name,feature_type
 - 合并所有文件宽表生成全局宽表`ml_wide_table_global.csv`
 - 将过滤后的特征字典保存到`config/features.csv`供模型训练使用
 - 对类别特征进行One-Hot编码并合并到最终宽表中
+
+程序会读取`config/primary_key.csv`配置文件来确定各Excel文件的主键字段。如果该文件不存在，程序会自动检测主键字段或使用默认的索引作为主键。
 
 ### 2. 标签数据处理 (add_label.py)
 
