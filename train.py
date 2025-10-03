@@ -161,13 +161,19 @@ def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
     print(f"✅ 实际训练树数量: {actual_n_estimators} (原计划: {n_estimators})")
 
     # ========== Step 2.5: 输出 GBDT 特征重要性 ==========
+    # 获取 Gain 类型的重要性（更准确反映特征影响）
+    gain_importance = model.booster_.feature_importance(importance_type='gain')
+    # 获取 Split 类型的重要性（特征被用于分裂的次数）
+    split_importance = model.booster_.feature_importance(importance_type='split')
+    
     feat_imp = pd.DataFrame({
         'Feature': x_train.columns,
-        'Importance': model.feature_importances_
-    }).sort_values('Importance', ascending=False)
+        'Gain_Importance': gain_importance,
+        'Split_Importance': split_importance
+    }).sort_values('Gain_Importance', ascending=False)
 
     print("\n" + "="*60)
-    print("📊 GBDT Top 20 重要特征:")
+    print("📊 GBDT Top 20 重要特征 (按 Gain 排序):")
     print("="*60)
     print(feat_imp.head(20))
     feat_imp.to_csv('output/gbdt_feature_importance.csv', index=False)
