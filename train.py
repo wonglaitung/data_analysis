@@ -1,3 +1,5 @@
+import os
+os.environ["NUMBA_DISABLE_TBB"] = "1"
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -7,8 +9,10 @@ from sklearn.metrics import log_loss
 from sklearn.metrics import roc_auc_score, roc_curve
 from lightgbm import log_evaluation
 import matplotlib.pyplot as plt
-import os
 import joblib
+
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']  # Windows 微软雅黑
+plt.rcParams['axes.unicode_minus'] = False  # 正常显示负号
 
 # ========== 工具函数：解析叶子节点路径（增强版） ==========
 def get_leaf_path_enhanced(booster, tree_index, leaf_index, feature_names, category_prefixes):
@@ -180,7 +184,7 @@ def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
     print("✅ 已保存至 output/gbdt_feature_importance.csv")
     
     # ========== 增加：通过SHAP值分析特征影响方向 ==========
-    try:
+    try:        
         import shap
         
         print("\n" + "="*60)
@@ -444,7 +448,7 @@ if __name__ == '__main__':
     print("✅ 将下面的内容复制到大模型内进行解读（不包括此三行）")
     print("✅ ======================================\n")
 
-    print("针对以下模型训练日志进行业务解读，输出业务规则报告，创造最大化的业务价值。")
+    print("针对以下(__)模型训练日志进行业务解读，输出业务规则报告，最大化创造业务价值。")
 
     print("🧠 开始训练 GBDT + LR 模型...")
     predictions = gbdt_lr_predict(data, category_feature, continuous_feature, test_ids)
