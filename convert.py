@@ -19,21 +19,46 @@ def normalize_name(name):
     """
     return re.sub(r'[^\w]', '_', name)
 
+def read_config_file(file_path, required_columns):
+    """
+    读取配置文件的通用函数
+    
+    参数:
+    file_path: 配置文件路径
+    required_columns: 必需的列名列表
+    
+    返回:
+    DataFrame: 读取的配置数据
+    """
+    if os.path.exists(file_path):
+        try:
+            df = pd.read_csv(file_path, dtype=str)
+            # 检查必需的列是否存在
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                print(f"配置文件 {file_path} 缺少必需的列: {missing_columns}")
+                return pd.DataFrame()
+            return df
+        except Exception as e:
+            print(f"读取配置文件 {file_path} 时出错: {e}")
+    return pd.DataFrame()
+
 def get_primary_key_mapping():
+    """
+    读取config/primary_key.csv文件，获取主键映射
+    """
     config_dir = "config"
     primary_key_file = os.path.join(config_dir, "primary_key.csv")
     mapping = {}
-    if os.path.exists(primary_key_file):
-        try:
-            df_pk = pd.read_csv(primary_key_file, dtype=str)
-            for _, row in df_pk.iterrows():
-                file = str(row.get('file_name', '')).strip()
-                sheet = str(row.get('sheet_name', '')).strip() if 'sheet_name' in row else ''
-                pk = str(row.get('primary_key', '')).strip()
-                if file and pk:
-                    mapping[(file, sheet)] = pk
-        except Exception as e:
-            print(f"读取主键配置文件 {primary_key_file} 时出错: {e}")
+    
+    df_pk = read_config_file(primary_key_file, ['file_name', 'primary_key'])
+    if not df_pk.empty:
+        for _, row in df_pk.iterrows():
+            file = str(row.get('file_name', '')).strip()
+            sheet = str(row.get('sheet_name', '')).strip() if 'sheet_name' in row else ''
+            pk = str(row.get('primary_key', '')).strip()
+            if file and pk:
+                mapping[(file, sheet)] = pk
     return mapping
 
 def get_category_feature_mapping():
@@ -43,18 +68,16 @@ def get_category_feature_mapping():
     config_dir = "config"
     category_type_file = os.path.join(config_dir, "category_type.csv")
     mapping = {}
-    if os.path.exists(category_type_file):
-        try:
-            df_category = pd.read_csv(category_type_file, dtype=str)
-            for _, row in df_category.iterrows():
-                file = str(row.get('file_name', '')).strip()
-                column = str(row.get('column_name', '')).strip()
-                feature_type = str(row.get('feature_type', '')).strip()
-                if file and column and feature_type:
-                    # 使用文件名和列名作为键
-                    mapping[(file, column)] = feature_type
-        except Exception as e:
-            print(f"读取类别特征配置文件 {category_type_file} 时出错: {e}")
+    
+    df_category = read_config_file(category_type_file, ['file_name', 'column_name', 'feature_type'])
+    if not df_category.empty:
+        for _, row in df_category.iterrows():
+            file = str(row.get('file_name', '')).strip()
+            column = str(row.get('column_name', '')).strip()
+            feature_type = str(row.get('feature_type', '')).strip()
+            if file and column and feature_type:
+                # 使用文件名和列名作为键
+                mapping[(file, column)] = feature_type
     return mapping
 
 def auto_detect_key(df):
@@ -63,6 +86,64 @@ def auto_detect_key(df):
         if any(candidate in col.lower() for candidate in primary_key_candidates):
             return col
     return None
+
+def determine_feature_type(col, wide_df, category_feature_mapping, file_name=None, orig_col_name=None):
+    """
+    确定特征类型
+    
+    参数:
+    col: 列名
+    wide_df: 数据框
+    category_feature_mapping: 类别特征映射
+    file_name: 文件名（可选）
+    orig_col_name: 原始列名（可选）
+    
+    返回:
+    feature_type: 特征类型 ('continuous', 'category', 'text', 'other')
+    """
+    # 检查该列是否在category_type.csv中被指定为类别特征
+    is_forced_category = False
+    
+    # 如果提供了file_name和orig_col_name，直接检查是否在category_feature_mapping中
+    if file_name and orig_col_name and (file_name, orig_col_name) in category_feature_mapping:
+        is_forced_category = True
+    
+    # 遍历category_feature_mapping，检查列名是否匹配
+    if not is_forced_category:
+        for (f_name, column_name), feature_type in category_feature_mapping.items():
+            # 生成可能的前缀
+            safe_prefix = normalize_name(f_name.replace('.xlsx', ''))
+            
+            # 检查是否完全匹配（不带前缀的原始列名）
+            if col == column_name and feature_type == 'category':
+                is_forced_category = True
+                break
+            
+            # 检查是否带前缀匹配
+            if col.startswith(f"{safe_prefix}_{column_name.lower()}") and feature_type == 'category':
+                is_forced_category = True
+                break
+            
+            # 特殊处理：处理列名中包含下划线的情况
+            if feature_type == 'category':
+                # 将原始列名转换为小写并替换特殊字符为下划线
+                normalized_column_name = normalize_name(column_name.lower())
+                if col.startswith(f"{safe_prefix}_{normalized_column_name}") or col.startswith(f"{safe_prefix}_{column_name.lower()}"):
+                    is_forced_category = True
+                    break
+    
+    if is_forced_category:
+        # 强制作为类别特征
+        return 'category'
+    elif pd.api.types.is_numeric_dtype(wide_df[col]):
+        return 'continuous'
+    elif pd.api.types.is_string_dtype(wide_df[col]) or pd.api.types.is_object_dtype(wide_df[col]):
+        if wide_df[col].nunique() <= 10:
+            return 'category'
+        else:
+            return 'text'
+    else:
+        return 'other'
 
 def process_all_excel_files():
     excel_files = glob.glob(os.path.join(input_dir, "*.xlsx"))
@@ -417,45 +498,8 @@ def generate_feature_dictionary(wide_df, category_feature_mapping):
     """
     feature_dict = []
     for col in wide_df.columns:
-        # 检查该列是否在category_type.csv中被指定为类别特征
-        is_forced_category = False
-        
-        # 遍历category_feature_mapping，检查列名是否匹配
-        for (file_name, column_name), feature_type in category_feature_mapping.items():
-            # 生成可能的前缀
-            safe_prefix = normalize_name(file_name.replace('.xlsx', ''))
-            
-            # 检查是否完全匹配（不带前缀的原始列名）
-            if col == column_name and feature_type == 'category':
-                is_forced_category = True
-                break
-            
-            # 检查是否带前缀匹配
-            if col.startswith(f"{safe_prefix}_{column_name.lower()}") and feature_type == 'category':
-                is_forced_category = True
-                break
-            
-            # 特殊处理：处理列名中包含下划线的情况
-            # 例如：原始列名为BELONG_BRNO，生成的列名为分渠道汇款业务分析_20241231_belong_brno_部门_CHD
-            if feature_type == 'category':
-                # 将原始列名转换为小写并替换特殊字符为下划线
-                normalized_column_name = normalize_name(column_name.lower())
-                if col.startswith(f"{safe_prefix}_{normalized_column_name}") or col.startswith(f"{safe_prefix}_{column_name.lower()}"):
-                    is_forced_category = True
-                    break
-        
-        if is_forced_category:
-            # 强制作为类别特征
-            feature_type = 'category'
-        elif pd.api.types.is_numeric_dtype(wide_df[col]):
-            feature_type = 'continuous'
-        elif pd.api.types.is_string_dtype(wide_df[col]) or pd.api.types.is_object_dtype(wide_df[col]):
-            if wide_df[col].nunique() <= 10:
-                feature_type = 'category'
-            else:
-                feature_type = 'text'
-        else:
-            feature_type = 'other'
+        # 使用工具函数确定特征类型
+        feature_type = determine_feature_type(col, wide_df, category_feature_mapping)
             
         feature_dict.append({
             'feature_name': col,
