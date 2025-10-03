@@ -13,6 +13,12 @@ input_dir = "data"
 output_dir = "output"
 os.makedirs(output_dir, exist_ok=True)
 
+def normalize_name(name):
+    """
+    标准化名称，将特殊字符替换为下划线
+    """
+    return re.sub(r'[^\w]', '_', name)
+
 def get_primary_key_mapping():
     config_dir = "config"
     primary_key_file = os.path.join(config_dir, "primary_key.csv")
@@ -30,6 +36,27 @@ def get_primary_key_mapping():
             print(f"读取主键配置文件 {primary_key_file} 时出错: {e}")
     return mapping
 
+def get_category_feature_mapping():
+    """
+    读取config/category_type.csv文件，获取需要强制作为类别特征的字段映射
+    """
+    config_dir = "config"
+    category_type_file = os.path.join(config_dir, "category_type.csv")
+    mapping = {}
+    if os.path.exists(category_type_file):
+        try:
+            df_category = pd.read_csv(category_type_file, dtype=str)
+            for _, row in df_category.iterrows():
+                file = str(row.get('file_name', '')).strip()
+                column = str(row.get('column_name', '')).strip()
+                feature_type = str(row.get('feature_type', '')).strip()
+                if file and column and feature_type:
+                    # 使用文件名和列名作为键
+                    mapping[(file, column)] = feature_type
+        except Exception as e:
+            print(f"读取类别特征配置文件 {category_type_file} 时出错: {e}")
+    return mapping
+
 def auto_detect_key(df):
     primary_key_candidates = ['cusno', 'ci', '客户编号', '客户号']
     for col in df.columns:
@@ -44,6 +71,7 @@ def process_all_excel_files():
     all_primary_keys_set = set(['__primary_key__', 'id', 'cusno', 'ci', 'index'])
 
     primary_key_mapping = get_primary_key_mapping()
+    category_feature_mapping = get_category_feature_mapping()
 
     for file_path in excel_files:
         file_name = os.path.basename(file_path)
@@ -55,7 +83,7 @@ def process_all_excel_files():
                 df.columns = [col.strip().lower() if isinstance(col, str) else col for col in df.columns]
 
                 # === 关键：不再添加 source_file / sheet_name ===
-                safe_prefix = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
+                safe_prefix = normalize_name(file_name.replace('.xlsx', ''))
                 new_columns = []
                 for col in df.columns:
                     if col == '__primary_key__':
@@ -89,13 +117,19 @@ def process_all_excel_files():
         except Exception as e:
             print(f"处理文件 {file_path} 时出错: {e}")
     
-    return all_data, [k.lower() for k in all_primary_keys_set]
+    return all_data, [k.lower() for k in all_primary_keys_set], category_feature_mapping
 
-def analyze_fields_and_dimensions(all_data):
+def analyze_fields_and_dimensions(all_data, category_feature_mapping):
+    """
+    分析字段和维度，考虑从category_type.csv中读取的类别特征
+    """
     field_analysis = {}
     dimension_analysis = {}
     for file_name, dataframes in all_data.items():
         for df in dataframes:
+            # 获取该文件的安全前缀
+            safe_prefix = normalize_name(file_name.replace('.xlsx', ''))
+            
             for col in df.columns:
                 if col not in field_analysis:
                     field_analysis[col] = {
@@ -107,9 +141,24 @@ def analyze_fields_and_dimensions(all_data):
                 field_analysis[col]['files'].add(file_name)
                 sample_vals = df[col].dropna().unique()[:5]
                 field_analysis[col]['sample_values'].update(sample_vals)
+            
             for col in df.columns:
                 # === 不再排除 source_file/sheet_name（因为它们不存在）===
-                if (pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])) and col != '__primary_key__':
+                # 提取原始列名（去除前缀）
+                orig_col_name = col
+                if col.startswith(safe_prefix + '_'):
+                    orig_col_name = col[len(safe_prefix) + 1:]
+                
+                # 检查该列是否在category_type.csv中被指定为类别特征
+                is_forced_category = False
+                # 检查是否在category_feature_mapping中
+                if (file_name, orig_col_name) in category_feature_mapping:
+                    is_forced_category = True
+                
+                # 如果是强制类别特征，或者原本就是字符串/对象类型且不是主键，则作为维度处理
+                if (is_forced_category or 
+                    ((pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col])) 
+                     and col != '__primary_key__')):
                     if col not in dimension_analysis:
                         dimension_analysis[col] = {
                             'files': set(),
@@ -132,7 +181,7 @@ def get_topk_by_coverage(value_counts, coverage_threshold=0.95, max_top_k=50):
         topk_idx = topk_idx[:max_top_k]
     return topk_idx
 
-def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, coverage_threshold=0.95, max_top_k=50):
+def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, category_feature_mapping, coverage_threshold=0.95, max_top_k=50):
     file_wide_tables = {}
 
     for file_name, dataframes in all_data.items():
@@ -140,7 +189,7 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
         file_wide_dfs = []
         category_features = []  # 用于存储类别型特征
 
-        safe_prefix = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
+        safe_prefix = normalize_name(file_name.replace('.xlsx', ''))
 
         def strip_file_prefix(full_col):
             expected_start = safe_prefix + '_'
@@ -153,18 +202,31 @@ def create_wide_table_per_file(all_data, dimension_analysis, all_primary_keys, c
             if primary_key not in df.columns:
                 df[primary_key] = df.index.astype(str)
 
-            numeric_cols = [
-                col for col in df.columns
-                if pd.api.types.is_numeric_dtype(df[col])
-                and col != primary_key
-                and col.lower() not in all_primary_keys
-            ]
-            dimension_cols = [
-                col for col in df.columns
-                if ((pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]))
-                    and col != '__primary_key__'
-                    and col.lower() not in all_primary_keys)
-            ]
+            # 确定数值型列和维度列
+            numeric_cols = []
+            dimension_cols = []
+            
+            for col in df.columns:
+                if col == primary_key or col.lower() in all_primary_keys:
+                    continue
+                
+                # 提取原始列名（去除前缀）
+                orig_col_name = col
+                if col.startswith(safe_prefix + '_'):
+                    orig_col_name = col[len(safe_prefix) + 1:]
+                
+                # 检查是否在category_type.csv中被指定为类别特征
+                is_forced_category = (file_name, orig_col_name) in category_feature_mapping
+                
+                # 如果是强制类别特征，则加入维度列
+                if is_forced_category:
+                    dimension_cols.append(col)
+                # 如果是数值型且未被强制指定为类别特征，则加入数值列
+                elif pd.api.types.is_numeric_dtype(df[col]):
+                    numeric_cols.append(col)
+                # 如果是字符串/对象类型且未被强制指定为类别特征，则加入维度列
+                elif pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]):
+                    dimension_cols.append(col)
 
             # 保存原始的类别型特征列
             for dim_col in dimension_cols:
@@ -349,10 +411,43 @@ def calculate_derived_features(wide_df):
     print(f"  衍生特征计算完成，当前形状: {wide_df.shape}")
     return wide_df
 
-def generate_feature_dictionary(wide_df):
+def generate_feature_dictionary(wide_df, category_feature_mapping):
+    """
+    生成特征字典，考虑从category_type.csv中读取的类别特征
+    """
     feature_dict = []
     for col in wide_df.columns:
-        if pd.api.types.is_numeric_dtype(wide_df[col]):
+        # 检查该列是否在category_type.csv中被指定为类别特征
+        is_forced_category = False
+        
+        # 遍历category_feature_mapping，检查列名是否匹配
+        for (file_name, column_name), feature_type in category_feature_mapping.items():
+            # 生成可能的前缀
+            safe_prefix = normalize_name(file_name.replace('.xlsx', ''))
+            
+            # 检查是否完全匹配（不带前缀的原始列名）
+            if col == column_name and feature_type == 'category':
+                is_forced_category = True
+                break
+            
+            # 检查是否带前缀匹配
+            if col.startswith(f"{safe_prefix}_{column_name.lower()}") and feature_type == 'category':
+                is_forced_category = True
+                break
+            
+            # 特殊处理：处理列名中包含下划线的情况
+            # 例如：原始列名为BELONG_BRNO，生成的列名为分渠道汇款业务分析_20241231_belong_brno_部门_CHD
+            if feature_type == 'category':
+                # 将原始列名转换为小写并替换特殊字符为下划线
+                normalized_column_name = normalize_name(column_name.lower())
+                if col.startswith(f"{safe_prefix}_{normalized_column_name}") or col.startswith(f"{safe_prefix}_{column_name.lower()}"):
+                    is_forced_category = True
+                    break
+        
+        if is_forced_category:
+            # 强制作为类别特征
+            feature_type = 'category'
+        elif pd.api.types.is_numeric_dtype(wide_df[col]):
             feature_type = 'continuous'
         elif pd.api.types.is_string_dtype(wide_df[col]) or pd.api.types.is_object_dtype(wide_df[col]):
             if wide_df[col].nunique() <= 10:
@@ -361,6 +456,7 @@ def generate_feature_dictionary(wide_df):
                 feature_type = 'text'
         else:
             feature_type = 'other'
+            
         feature_dict.append({
             'feature_name': col,
             'feature_type': feature_type
@@ -368,14 +464,16 @@ def generate_feature_dictionary(wide_df):
     return pd.DataFrame(feature_dict)
 
 def main(coverage_threshold=0.95, max_top_k=50):
-    all_data, all_primary_keys = process_all_excel_files()
-    field_analysis, dimension_analysis = analyze_fields_and_dimensions(all_data)
+    # 获取类别特征映射
+    all_data, all_primary_keys, category_feature_mapping = process_all_excel_files()
+    field_analysis, dimension_analysis = analyze_fields_and_dimensions(all_data, category_feature_mapping)
     print(f"\n分析了 {len(field_analysis)} 个字段, {len(dimension_analysis)} 个维度")
 
     file_wide_tables = create_wide_table_per_file(
         all_data,
         dimension_analysis,
         all_primary_keys,
+        category_feature_mapping,
         coverage_threshold=coverage_threshold,
         max_top_k=max_top_k
     )
@@ -386,12 +484,12 @@ def main(coverage_threshold=0.95, max_top_k=50):
 
     # 保存每个文件的独立宽表
     for file_name, wide_df in file_wide_tables.items():
-        safe_name = re.sub(r'[^\w]', '_', file_name.replace('.xlsx', ''))
+        safe_name = normalize_name(file_name.replace('.xlsx', ''))
         output_csv = os.path.join(output_dir, f"wide_table_{safe_name}.csv")
         wide_df.to_csv(output_csv, index=False, encoding='utf-8')
         print(f"✅ 保存文件宽表: {output_csv}")
 
-        feature_dict_df = generate_feature_dictionary(wide_df)
+        feature_dict_df = generate_feature_dictionary(wide_df, category_feature_mapping)
         dict_csv = os.path.join(output_dir, f"feature_dict_{safe_name}.csv")
         feature_dict_df.to_csv(dict_csv, index=False, encoding='utf-8')
 
@@ -410,7 +508,7 @@ def main(coverage_threshold=0.95, max_top_k=50):
     global_output = os.path.join(output_dir, "ml_wide_table_global.csv")
     global_wide.to_csv(global_output, index=False, encoding='utf-8')
 
-    global_dict = generate_feature_dictionary(global_wide)
+    global_dict = generate_feature_dictionary(global_wide, category_feature_mapping)
     global_dict.to_csv(os.path.join(output_dir, "feature_dictionary_global.csv"), index=False, encoding='utf-8')
 
     config_dir = "config"
