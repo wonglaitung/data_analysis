@@ -1,0 +1,5 @@
+file_name,column_name,feature_type
+数据集-环比-带金额_20241231.xlsx,网点号,category
+数据集-同比-带金额_20241231(1).xlsx,网点号,category
+数据集-同比-带金额_20241231(1).xlsx,日期,category
+分渠道汇款业务分析_20241231.xlsx,BELONG_BRNO,category
