@@ -73,12 +73,32 @@ def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', label_column=
     return df_merged
 
 if __name__ == "__main__":
-    # 默认参数
-    excel_file_path = './label/现金管理客户数全量2025_08（销户因素调整后).xlsx'
-    sheet_name = '2024Raw'
-    label_column = '本地支薪'
+    # 从lable_key.csv读取配置
+    try:
+        label_config = pd.read_csv('./config/lable_key.csv')
+        if not label_config.empty:
+            # 使用配置文件中的第一个条目作为默认参数
+            excel_file_path = f'./label/{label_config.iloc[0]["file_name"]}'
+            sheet_name = label_config.iloc[0]["sheet_name"]
+            label_column = label_config.iloc[0]["label_key"]
+        else:
+            # 如果配置文件为空，使用默认参数
+            excel_file_path = './label/现金管理客户数全量2025_08（销户因素调整后).xlsx'
+            sheet_name = '2024Raw'
+            label_column = '本地支薪'
+    except FileNotFoundError:
+        # 如果配置文件不存在，使用默认参数
+        excel_file_path = './label/现金管理客户数全量2025_08（销户因素调整后).xlsx'
+        sheet_name = '2024Raw'
+        label_column = '本地支薪'
+    except Exception as e:
+        # 如果读取配置文件时出现其他错误，使用默认参数
+        print(f"读取配置文件时出现错误: {e}")
+        excel_file_path = './label/现金管理客户数全量2025_08（销户因素调整后).xlsx'
+        sheet_name = '2024Raw'
+        label_column = '本地支薪'
     
-    # 如果提供了命令行参数，则使用参数
+    # 如果提供了命令行参数，则使用参数覆盖配置文件中的值
     if len(sys.argv) > 1:
         excel_file_path = sys.argv[1]
     if len(sys.argv) > 2:

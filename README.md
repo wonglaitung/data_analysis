@@ -18,13 +18,17 @@
 ├── fake.py                 # 生成假的训练和测试数据的脚本
 ├── add_label.py            # 从Excel文件中提取标签并合并到宽表的脚本
 ├── README.md               # 项目说明文档
-├── IFLOW.md                # 项目上下文文档（当前文件）
+├── IFLOW.md                # 项目上下文文档
 ├── config/                 # 配置文件目录
 │   ├── primary_key.csv     # 主键配置文件，定义各Excel文件的主键字段
-│   └── category_type.csv   # 类别特征配置文件，定义业务上应视为类别特征的数值型字段
+│   ├── category_type.csv   # 类别特征配置文件，定义业务上应视为类别特征的数值型字段
+│   ├── lable_key.csv       # 标签文件配置文件，定义标签Excel文件的信息
+│   └── features.csv        # 特征配置文件，定义特征类型
 ├── data/                   # 存放原始数据文件
 │   ├── train.csv           # 训练数据集
 │   ├── test.csv            # 测试数据集
+│   ├── data.csv            # 预处理后的训练和测试数据合并文件
+│   ├── predicted_test.csv  # 预测结果文件
 │   └── *.xlsx              # 原始Excel数据文件
 └── output/                 # 存放处理后的输出文件和模型
     ├── feature_dict_*.csv              # 各Excel文件的字段描述字典
@@ -98,7 +102,7 @@ file_name,column_name,feature_type
 
 ### 2. 标签数据处理 (add_label.py)
 
-- 从指定Excel文件中读取标签数据（"本地支薪"字段）
+- 从指定Excel文件中读取标签数据（根据`config/lable_key.csv`配置文件中的设置）
 - 处理ID字段的前导零问题，确保数据正确匹配
 - 将标签数据合并到全局宽表中
 - 生成带标签的训练数据集`train.csv`和测试数据集`test.csv`
@@ -133,6 +137,8 @@ file_name,column_name,feature_type
 
 - `train.csv`: 训练数据集，包含标签字段Label
 - `test.csv`: 测试数据集，不包含标签字段
+- `data.csv`: 预处理后的训练和测试数据合并文件
+- `predicted_test.csv`: 预测结果文件
 - `*.xlsx`: 原始的Excel数据集，包含各种金融业务相关的数据
 - `ml_wide_table_global.csv`: 经过处理后生成的全局宽表，用于机器学习
 - `ml_wide_table_with_label.csv`: 带标签的全局宽表
@@ -141,18 +147,34 @@ file_name,column_name,feature_type
 - `gbdt_model.pkl`和`lr_model.pkl`: 训练好的GBDT和LR模型
 - `submission_gbdt_lr.csv`: 模型预测结果文件
 
-## 模型评估结果
+## 配置文件说明
 
-### 模型性能指标
-- **训练集 LogLoss**: 0.0348
-- **验证集 LogLoss**: 0.0431
-- **训练集 AUC**: 0.896
-- **验证集 AUC**: 0.814
+### 1. 主键配置 (config/primary_key.csv)
 
-### 结果解释
-- LogLoss 非常小，说明模型预测概率非常接近真实标签
-- AUC 超过 0.8，说明模型具有很好的区分能力
-- 模型没有明显过拟合，具有良好的泛化能力
+定义各Excel文件的主键字段，包含以下列：
+- `file_name`: Excel文件名
+- `sheet_name`: 工作表名（可为空）
+- `primary_key`: 主键字段名
+
+### 2. 类别特征配置 (config/category_type.csv)
+
+定义需要强制作为类别特征的字段，包含以下列：
+- `file_name`: Excel文件名
+- `column_name`: 列名
+- `feature_type`: 特征类型（固定为category）
+
+### 3. 标签配置 (config/lable_key.csv)
+
+定义标签文件的信息，包含以下列：
+- `file_name`: 标签Excel文件名
+- `sheet_name`: 工作表名
+- `label_key`: 标签列名
+
+### 4. 特征配置 (config/features.csv)
+
+定义所有特征的类型，包含以下列：
+- `feature_name`: 特征名称
+- `feature_type`: 特征类型（continuous/category）
 
 ## 使用说明
 
@@ -170,7 +192,7 @@ python convert.py
 python add_label.py
 ```
 
-该脚本会从指定Excel文件中提取标签数据并合并到全局宽表中，生成带标签的训练数据集和测试数据集。
+该脚本会根据`config/lable_key.csv`配置文件中的设置，从指定Excel文件中提取标签数据并合并到全局宽表中，生成带标签的训练数据集和测试数据集。
 
 ### 裁剪Excel文件
 

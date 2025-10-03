@@ -7,7 +7,6 @@
 1. 将多个Excel格式的数据集转换为用于机器学习的宽表格式
 2. 使用GBDT+LR模型进行二分类预测
 3. 生成模型可解释性报告（特征重要性、SHAP分析等）
-4. 支持本地批量预测和API服务
 
 ## 目录结构
 
@@ -16,8 +15,6 @@
 ├── add_label.py            # 从Excel标签文件中提取标签并添加到宽表
 ├── convert.py              # 主要的数据转换脚本，将Excel文件转换为宽表
 ├── fake.py                 # 生成假的训练和测试数据的脚本
-├── local_batch_predict.py  # 本地批量预测脚本
-├── predictor.py            # 预测核心逻辑，供API和本地预测使用
 ├── train.py                # GBDT+LR模型训练和预测脚本
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
 ├── README.md               # 项目说明文档
@@ -25,15 +22,13 @@
 ├── config/                 # 配置文件目录
 │   ├── features.csv        # 特征配置文件，定义特征类型
 │   ├── primary_key.csv     # 主键配置文件，定义各Excel文件的主键字段
-│   └── category_type.csv   # 类别特征类型配置文件
+│   ├── category_type.csv   # 类别特征类型配置文件
+│   └── lable_key.csv       # 标签文件配置文件
 ├── data/                   # 存放原始数据文件
 │   ├── train.csv           # 训练数据集
 │   ├── test.csv            # 测试数据集
-│   ├── predicted_test.csv  # 本地批量预测结果
 │   ├── data.csv            # 预处理后的训练和测试数据合并文件
 │   └── *.xlsx              # 原始Excel数据文件
-├── label/                  # 存放标签文件
-│   └── *.xlsx              # 包含真实标签的Excel文件
 └── output/                 # 存放处理后的输出文件和模型
     ├── feature_dict_*.csv              # 各Excel文件的字段描述字典
     ├── wide_table_*.csv                # 各Excel文件生成的宽表
@@ -54,6 +49,41 @@
     └── continuous_features.csv         # 连续特征名称
 ```
 
+## 特征类型识别机制
+
+在数据处理过程中，程序会自动识别每个字段的特征类型（连续型、类别型或文本型）。识别机制如下：
+
+### 1. 强制类别特征识别
+程序会读取`config/category_type.csv`配置文件，该文件中指定的字段会被强制识别为类别特征，即使它们在数据上表现为数值型。这解决了业务上某些数值型字段实际上应作为类别特征处理的问题。
+
+配置文件格式：
+```
+file_name,column_name,feature_type
+数据集-环比-带金额_20241231.xlsx,网点号,category
+数据集-同比-带金额_20241231(1).xlsx,网点号,category
+数据集-同比-带金额_20241231(1).xlsx,日期,category
+分渠道汇款业务分析_20241231.xlsx,BELONG_BRNO,category
+```
+
+如果`category_type.csv`文件不存在，程序会完全依赖自动特征类型识别机制。
+
+### 2. 自动特征类型识别
+对于未在`category_type.csv`中配置的字段，程序会根据以下规则自动识别特征类型：
+
+1. **连续型特征（continuous）**：
+   - 数据类型为数值型的字段（如int、float等）
+
+2. **类别型特征（category）**：
+   - 数据类型为字符串或对象类型，且唯一值数量≤10个的字段
+
+3. **文本型特征（text）**：
+   - 数据类型为字符串或对象类型，且唯一值数量>10个的字段
+
+4. **其他类型（other）**：
+   - 不符合上述任何条件的字段
+
+这种识别机制确保了既能满足业务需求（通过强制指定），又能自动处理大部分常规情况。
+
 ## 核心功能
 
 ### 1. 数据处理与转换 (convert.py)
@@ -65,13 +95,17 @@
 - 将每个文件的宽表和字段描述分别保存为CSV文件到`output/`目录中
 - 合并所有文件宽表生成全局宽表`ml_wide_table_global.csv`
 - 将过滤后的特征字典保存到`config/features.csv`供模型训练使用
+- 从`config/primary_key.csv`读取各文件的主键配置
+- 从`config/category_type.csv`读取需要强制作为类别特征的字段配置
+- 对类别特征进行One-Hot编码并合并到最终宽表中
 
 ### 2. 标签添加 (add_label.py)
 
-- 从`label/`目录下的Excel文件中读取真实标签
-- 将标签添加到全局宽表`ml_wide_table_global.csv`中
-- 生成带标签的宽表`ml_wide_table_with_label.csv`
-- 同时更新`data/train.csv`和`data/test.csv`文件用于模型训练
+- 从指定Excel文件中读取标签数据（"本地支薪"字段）
+- 处理ID字段的前导零问题，确保数据正确匹配
+- 将标签数据合并到全局宽表中
+- 生成带标签的训练数据集`train.csv`和测试数据集`test.csv`
+- 处理缺失标签值，将其默认设置为0
 
 ### 3. 数据裁剪 (trim_excel.py)
 
@@ -96,18 +130,36 @@
 - 生成模型可解释性报告（特征重要性、SHAP分析、叶子节点规则解析等）
 - 保存模型和相关元数据用于API服务
 - 生成ROC曲线图
+- 支持早停机制，自动确定最佳迭代次数
 
-### 6. 本地批量预测 (local_batch_predict.py)
+## 配置文件说明
 
-- 使用训练好的模型对本地CSV文件进行批量预测
-- 生成包含预测概率和解释信息的结果文件
-- 结果保存在`data/predicted_*.csv`文件中
+### 1. 主键配置 (config/primary_key.csv)
 
-### 7. 预测核心逻辑 (predictor.py)
+定义各Excel文件的主键字段，包含以下列：
+- `file_name`: Excel文件名
+- `sheet_name`: 工作表名（可为空）
+- `primary_key`: 主键字段名
 
-- 提供模型加载、数据预处理和预测的核心功能
-- 支持单样本预测和批处理预测
-- 生成SHAP解释和决策路径规则
+### 2. 类别特征配置 (config/category_type.csv)
+
+定义需要强制作为类别特征的字段，包含以下列：
+- `file_name`: Excel文件名
+- `column_name`: 列名
+- `feature_type`: 特征类型（固定为category）
+
+### 3. 标签配置 (config/lable_key.csv)
+
+定义标签文件的信息，包含以下列：
+- `file_name`: 标签Excel文件名
+- `sheet_name`: 工作表名
+- `label_key`: 标签列名
+
+### 4. 特征配置 (config/features.csv)
+
+定义所有特征的类型，包含以下列：
+- `feature_name`: 特征名称
+- `feature_type`: 特征类型（continuous/category）
 
 ## 数据说明
 
@@ -120,6 +172,19 @@
 - `features.csv`: 特征配置文件，定义特征类型（连续/类别）
 - `gbdt_model.pkl`和`lr_model.pkl`: 训练好的GBDT和LR模型
 - `submission_gbdt_lr.csv`: 模型预测结果文件
+
+## 模型评估结果
+
+### 模型性能指标
+- **训练集 LogLoss**: 0.0348
+- **验证集 LogLoss**: 0.0431
+- **训练集 AUC**: 0.896
+- **验证集 AUC**: 0.814
+
+### 结果解释
+- LogLoss 非常小，说明模型预测概率非常接近真实标签
+- AUC 超过 0.8，说明模型具有很好的区分能力
+- 模型没有明显过拟合，具有良好的泛化能力
 
 ## 使用说明
 
@@ -137,7 +202,7 @@ python convert.py
 python add_label.py
 ```
 
-该脚本会从`label/`目录下的Excel文件中读取真实标签，并添加到全局宽表中，生成带标签的宽表，同时更新`data/train.csv`和`data/test.csv`文件。
+该脚本会从指定Excel文件中提取标签数据并合并到全局宽表中，生成带标签的训练数据集和测试数据集。
 
 ### 裁剪Excel文件
 
@@ -162,14 +227,6 @@ python train.py
 ```
 
 该脚本会从`config/features.csv`读取特征定义，训练GBDT+LR模型，并生成预测结果和可解释性报告。
-
-### 本地批量预测
-
-```bash
-python local_batch_predict.py <input_csv>
-```
-
-该脚本会使用训练好的模型对指定的CSV文件进行批量预测，结果保存在`data/predicted_*.csv`文件中。
 
 ## 开发约定
 
