@@ -2,8 +2,8 @@ import pandas as pd
 import os
 
 # 定义数据目录和输出目录
-data_dir = '/data/data_analysis/data'
-output_dir = '/data/data_analysis/data'
+data_dir = '/data/data_analysis/data_train'
+output_dir = '/data/data_analysis/data_train'
 
 # 确保输出目录存在
 os.makedirs(output_dir, exist_ok=True)

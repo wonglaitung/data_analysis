@@ -5,17 +5,17 @@
 这是一个用于处理金融数据的Python项目，主要功能包括：
 
 1. 将多个Excel格式的数据集转换为用于机器学习的宽表格式
-2. 使用GBDT+LR模型进行二分类预测
+2. 使用GBDT+LR模型进行二分类训练
 3. 生成模型可解释性报告（特征重要性、SHAP分析等）
 
 ## 目录结构
 
 ```
 /data/data_analysis/
-├── add_label.py            # 从Excel标签文件中提取标签并添加到宽表
-├── convert.py              # 主要的数据转换脚本，将Excel文件转换为宽表
-├── fake.py                 # 生成假的训练和测试数据的脚本
-├── train.py                # GBDT+LR模型训练和预测脚本
+├── add_train_label.py      # 从Excel标签文件中提取标签并添加到宽表
+├── convert_train_data.py   # 主要的数据转换脚本，将Excel文件转换为宽表
+├── fake_train_data.py      # 生成假的训练和测试数据的脚本
+├── train_model.py          # GBDT+LR模型训练脚本（仅训练，不进行预测）
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
 ├── README.md               # 项目说明文档
 ├── IFLOW.md                # 项目上下文文档（当前文件）
@@ -24,11 +24,13 @@
 │   ├── primary_key.csv     # 主键配置文件，定义各Excel文件的主键字段
 │   ├── category_type.csv   # 类别特征类型配置文件
 │   └── lable_key.csv       # 标签文件配置文件
-├── data/                   # 存放原始数据文件
+├── data_train/             # 存放原始数据文件
 │   ├── train.csv           # 训练数据集
 │   ├── test.csv            # 测试数据集
 │   ├── data.csv            # 预处理后的训练和测试数据合并文件
 │   └── *.xlsx              # 原始Excel数据文件
+├── label_train/            # 存放标签文件
+│   └── *.xlsx              # 原始标签Excel文件
 └── output/                 # 存放处理后的输出文件和模型
     ├── feature_dict_*.csv              # 各Excel文件的字段描述字典
     ├── wide_table_*.csv                # 各Excel文件生成的宽表
@@ -40,7 +42,6 @@
     ├── shap_summary_plot.png           # SHAP特征重要性图
     ├── shap_waterfall_sample_0.png     # SHAP单样本瀑布图
     ├── roc_curve.png                   # ROC曲线图
-    ├── submission_gbdt_lr.csv          # 模型预测结果
     ├── gbdt_model.pkl                  # GBDT模型文件
     ├── lr_model.pkl                    # LR模型文件
     ├── actual_n_estimators.csv         # 实际训练的树数量
@@ -86,9 +87,9 @@ file_name,column_name,feature_type
 
 ## 核心功能
 
-### 1. 数据处理与转换 (convert.py)
+### 1. 数据处理与转换 (convert_train_data.py)
 
-- 读取`data/`目录下的所有Excel文件
+- 读取`data_train/`目录下的所有Excel文件
 - 自动学习各文件的字段，分析各种维度
 - 根据各种维度对数据进行透视，生成用于机器学习的宽表
 - 自动计算一些衍生特征（如总和、均值、标准差等）
@@ -99,38 +100,39 @@ file_name,column_name,feature_type
 - 从`config/category_type.csv`读取需要强制作为类别特征的字段配置
 - 对类别特征进行One-Hot编码并合并到最终宽表中
 
-### 2. 标签添加 (add_label.py)
+### 2. 标签添加 (add_train_label.py)
 
-- 从指定Excel文件中读取标签数据（"本地支薪"字段）
+- 从`label_train/`目录下的指定Excel文件中读取标签数据（"本地支薪"字段）
 - 处理ID字段的前导零问题，确保数据正确匹配
 - 将标签数据合并到全局宽表中
-- 生成带标签的训练数据集`train.csv`和测试数据集`test.csv`
+- 生成带标签的训练数据集`data_train/train.csv`和测试数据集`data_train/test.csv`
 - 处理缺失标签值，将其默认设置为0
 
 ### 3. 数据裁剪 (trim_excel.py)
 
-- 读取`data/`目录下的Excel文件
+- 读取`data_train/`目录下的Excel文件
 - 保留每个文件的前100条记录
 - 将处理后的数据保存回原文件
 
-### 4. 假数据生成 (fake.py)
+### 4. 假数据生成 (fake_train_data.py)
 
 - 读取`output/ml_wide_table_global.csv`文件
 - 在Id后面增加Label字段，前1000个样本标记为1，其余为0
-- 保存到`data/train.csv`
-- 复制前100条数据到`data/test.csv`，并删除Label字段
+- 保存到`data_train/train.csv`
+- 复制前100条数据到`data_train/test.csv`，并删除Label字段
 
-### 5. 模型训练与预测 (train.py)
+### 5. 模型训练 (train_model.py)
 
 - 从`config/features.csv`读取特征定义
 - 对类别特征进行One-Hot编码
 - 训练GBDT模型并获取叶子节点索引
 - 对叶子节点进行One-Hot编码
-- 训练LR模型进行最终预测
+- 训练LR模型
 - 生成模型可解释性报告（特征重要性、SHAP分析、叶子节点规则解析等）
 - 保存模型和相关元数据用于API服务
 - 生成ROC曲线图
 - 支持早停机制，自动确定最佳迭代次数
+- 不再生成预测结果文件（submission_gbdt_lr.csv）
 
 ## 配置文件说明
 
@@ -163,15 +165,15 @@ file_name,column_name,feature_type
 
 ## 数据说明
 
-- `train.csv`: 训练数据集，包含标签字段Label
-- `test.csv`: 测试数据集，不包含标签字段
-- `*.xlsx`: 原始的Excel数据集，包含各种金融业务相关的数据
+- `data_train/train.csv`: 训练数据集，包含标签字段Label
+- `data_train/test.csv`: 测试数据集，不包含标签字段
+- `data_train/*.xlsx`: 原始的Excel数据集，包含各种金融业务相关的数据
+- `label_train/*.xlsx`: 原始标签Excel文件
 - `ml_wide_table_global.csv`: 经过处理后生成的全局宽表，用于机器学习
 - `ml_wide_table_with_label.csv`: 带有真实标签的全局宽表
 - `feature_dictionary_global.csv`: 全局宽表中各字段的描述信息
 - `features.csv`: 特征配置文件，定义特征类型（连续/类别）
 - `gbdt_model.pkl`和`lr_model.pkl`: 训练好的GBDT和LR模型
-- `submission_gbdt_lr.csv`: 模型预测结果文件
 
 ## 模型评估结果
 
@@ -191,18 +193,18 @@ file_name,column_name,feature_type
 ### 运行数据转换
 
 ```bash
-python convert.py
+python convert_train_data.py
 ```
 
-该脚本会处理`data/`目录下的所有Excel文件，并在`output/`目录生成各文件的宽表和特征字典，以及全局宽表`ml_wide_table_global.csv`和`feature_dictionary_global.csv`，同时将过滤后的特征字典保存到`config/features.csv`。
+该脚本会处理`data_train/`目录下的所有Excel文件，并在`output/`目录生成各文件的宽表和特征字典，以及全局宽表`ml_wide_table_global.csv`和`feature_dictionary_global.csv`，同时将过滤后的特征字典保存到`config/features.csv`。
 
 ### 添加真实标签
 
 ```bash
-python add_label.py
+python add_train_label.py
 ```
 
-该脚本会从指定Excel文件中提取标签数据并合并到全局宽表中，生成带标签的训练数据集和测试数据集。
+该脚本会从`label_train/`目录下的指定Excel文件中提取标签数据并合并到全局宽表中，生成带标签的训练数据集和测试数据集。
 
 ### 裁剪Excel文件
 
@@ -210,23 +212,23 @@ python add_label.py
 python trim_excel.py
 ```
 
-该脚本会将`data/`目录下的Excel文件裁剪为仅包含前100条记录。
+该脚本会将`data_train/`目录下的Excel文件裁剪为仅包含前100条记录。
 
 ### 生成假的训练和测试数据
 
 ```bash
-python fake.py
+python fake_train_data.py
 ```
 
-该脚本会读取`output/ml_wide_table_global.csv`文件，生成`data/train.csv`和`data/test.csv`。
+该脚本会读取`output/ml_wide_table_global.csv`文件，生成`data_train/train.csv`和`data_train/test.csv`。
 
 ### 训练模型
 
 ```bash
-python train.py
+python train_model.py
 ```
 
-该脚本会从`config/features.csv`读取特征定义，训练GBDT+LR模型，并生成预测结果和可解释性报告。
+该脚本会从`config/features.csv`读取特征定义，仅训练GBDT+LR模型，不进行预测，不生成预测结果文件。
 
 ## 开发约定
 

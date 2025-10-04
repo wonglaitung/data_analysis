@@ -9,7 +9,7 @@ import gc
 # ==============================
 # 1. 路径设置
 # ==============================
-input_dir = "data"
+input_dir = "data_train"
 output_dir = "output"
 os.makedirs(output_dir, exist_ok=True)
 

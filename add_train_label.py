@@ -59,14 +59,14 @@ def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', label_column=
     print(f"带标签的大宽表已保存到: {output_path}")
     
     # 参考fake.py，将大宽表的真实数据复制到train.csv和test.csv
-    # 保存到data/train.csv
-    train_path = './data/train.csv'
+    # 保存到data_train/train.csv
+    train_path = './data_train/train.csv'
     df_merged.to_csv(train_path, index=False)
     print(f"带标签的大宽表已保存到: {train_path}")
     
     # 复制前100条数据到test.csv，并删除Label字段
     test_df = df_merged.head(100).drop('Label', axis=1)
-    test_path = './data/test.csv'
+    test_path = './data_train/test.csv'
     test_df.to_csv(test_path, index=False)
     print(f"前100条数据（无标签）已保存到: {test_path}")
     
@@ -78,23 +78,23 @@ if __name__ == "__main__":
         label_config = pd.read_csv('./config/lable_key.csv')
         if not label_config.empty:
             # 使用配置文件中的第一个条目作为默认参数
-            excel_file_path = f'./label/{label_config.iloc[0]["file_name"]}'
+            excel_file_path = f'./label_train/{label_config.iloc[0]["file_name"]}'
             sheet_name = label_config.iloc[0]["sheet_name"]
             label_column = label_config.iloc[0]["label_key"]
         else:
             # 如果配置文件为空，使用默认参数
-            excel_file_path = './label/现金管理客户数全量2025_08（销户因素调整后).xlsx'
+            excel_file_path = './label_train/现金管理客户数全量2025_08（销户因素调整后).xlsx'
             sheet_name = '2024Raw'
             label_column = '本地支薪'
     except FileNotFoundError:
         # 如果配置文件不存在，使用默认参数
-        excel_file_path = './label/现金管理客户数全量2025_08（销户因素调整后).xlsx'
+        excel_file_path = './label_train/现金管理客户数全量2025_08（销户因素调整后).xlsx'
         sheet_name = '2024Raw'
         label_column = '本地支薪'
     except Exception as e:
         # 如果读取配置文件时出现其他错误，使用默认参数
         print(f"读取配置文件时出现错误: {e}")
-        excel_file_path = './label/现金管理客户数全量2025_08（销户因素调整后).xlsx'
+        excel_file_path = './label_train/现金管理客户数全量2025_08（销户因素调整后).xlsx'
         sheet_name = '2024Raw'
         label_column = '本地支薪'
     

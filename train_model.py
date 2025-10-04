@@ -85,7 +85,7 @@ def get_leaf_path_enhanced(booster, tree_index, leaf_index, feature_names, categ
 
 # ========== 数据预处理 ==========
 def preProcess():
-    path = 'data/'
+    path = 'data_train/'
     try:
         df_train = pd.read_csv(path + 'train.csv', encoding='utf-8')
     except UnicodeDecodeError:
@@ -95,7 +95,7 @@ def preProcess():
     df_train.drop(['Id'], axis=1, inplace=True)
     data = df_train.fillna(-1)
     
-    data.to_csv('data/data.csv', index=False, encoding='utf-8')
+    data.to_csv('data_train/data.csv', index=False, encoding='utf-8')
     return data
 
 
