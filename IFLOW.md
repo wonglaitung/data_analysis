@@ -29,6 +29,8 @@
 │   ├── test.csv            # 测试数据集
 │   ├── data.csv            # 预处理后的训练和测试数据合并文件
 │   └── *.xlsx              # 原始Excel数据文件
+├── data_predict/           # 存放待预测的Excel数据文件
+│   └── *.xlsx              # 原始Excel数据文件
 ├── label_train/            # 存放标签文件的目录
 │   └── *.xlsx              # 原始标签Excel文件
 └── output/                 # 存放处理后的输出文件和模型
@@ -169,6 +171,7 @@ file_name,column_name,feature_type
 - `data_train/train.csv`: 训练数据集，包含标签字段Label
 - `data_train/test.csv`: 测试数据集，不包含标签字段
 - `data_train/*.xlsx`: 原始的Excel数据集，包含各种金融业务相关的数据
+- `data_predict/*.xlsx`: 待预测的Excel数据集
 - `label_train/*.xlsx`: 原始标签Excel文件
 - `ml_wide_table_global.csv`: 经过处理后生成的全局宽表，用于机器学习
 - `ml_wide_table_with_label.csv`: 带有真实标签的全局宽表
