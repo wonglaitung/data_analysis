@@ -6,7 +6,8 @@
 
 1. 将多个Excel格式的数据集转换为用于机器学习的宽表格式
 2. 使用GBDT+LR模型进行二分类训练
-3. 对新的数据进行预测
+3. 生成模型可解释性报告（特征重要性、SHAP分析等）
+4. 对新的数据进行预测并提供解释性结果
 
 ## 目录结构
 
@@ -16,8 +17,9 @@
 ├── convert_train_data.py   # 主要的数据转换脚本，将Excel文件转换为宽表
 ├── convert_predict_data.py # 预测数据转换脚本，将Excel文件转换为宽表用于预测
 ├── fake_train_data.py      # 生成假的训练和测试数据的脚本
-├── train_model.py          # GBDT+LR模型训练脚本
+├── train_model.py          # GBDT+LR模型训练脚本（仅训练，不进行预测）
 ├── predict.py              # 使用训练好的模型进行预测的脚本
+├── test_predict_simple.py  # 简单预测测试脚本
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
 ├── base_data_processor.py  # 基础数据处理器类
 ├── base_model_processor.py # 基础模型处理器类
@@ -31,6 +33,7 @@
 ├── data_train/             # 存放训练用的原始数据文件
 │   ├── train.csv           # 训练数据集
 │   ├── test.csv            # 测试数据集
+│   ├── data.csv            # 预处理后的训练和测试数据合并文件
 │   └── *.xlsx              # 原始Excel数据文件
 ├── data_predict/           # 存放待预测的原始数据文件
 │   └── *.xlsx              # 原始Excel数据文件
@@ -44,6 +47,7 @@
     ├── feature_dictionary_predict_global.csv # 预测数据全局字段描述字典
     ├── ml_wide_table_global.csv        # 用于机器学习的全局宽表
     ├── ml_wide_table_predict_global.csv # 用于预测的全局宽表
+    ├── ml_wide_table_with_label.csv    # 带有真实标签的全局宽表
     ├── gbdt_feature_importance.csv     # GBDT模型特征重要性
     ├── lr_leaf_coefficients.csv        # LR模型叶子节点系数
     ├── shap_summary_plot.png           # SHAP特征重要性图
@@ -58,7 +62,7 @@
     └── prediction_results.csv          # 预测结果文件
 ```
 
-## 建模流程
+## 核心功能
 
 ### 1. 数据处理与转换 (convert_train_data.py)
 
@@ -80,8 +84,22 @@
 - 将标签数据合并到全局宽表中
 - 生成带标签的训练数据集`data_train/train.csv`和测试数据集`data_train/test.csv`
 - 处理缺失标签值，将其默认设置为0
+- 从`config/lable_key.csv`读取标签文件配置信息
 
-### 3. 模型训练 (train_model.py)
+### 3. 数据裁剪 (trim_excel.py)
+
+- 读取`data_train/`目录下的Excel文件
+- 保留每个文件的前100条记录
+- 将处理后的数据保存回原文件
+
+### 4. 假数据生成 (fake_train_data.py)
+
+- 读取`output/ml_wide_table_global.csv`文件
+- 在Id后面增加Label字段，前1000个样本标记为1，其余为0
+- 保存到`data_train/train.csv`
+- 复制前100条数据到`data_train/test.csv`，并删除Label字段
+
+### 5. 模型训练 (train_model.py)
 
 - 从`config/features.csv`读取特征定义
 - 对类别特征进行One-Hot编码
@@ -89,20 +107,20 @@
 - 对叶子节点进行One-Hot编码
 - 训练LR模型
 - 生成模型可解释性报告（特征重要性、SHAP分析、叶子节点规则解析等）
-- 保存模型和相关元数据用于预测
+- 保存模型和相关元数据用于API服务
 - 生成ROC曲线图
 - 支持早停机制，自动确定最佳迭代次数
+- 不再生成预测结果文件（submission_gbdt_lr.csv）
 
-## 预测流程
-
-### 1. 预测数据处理与转换 (convert_predict_data.py)
+### 6. 预测数据处理与转换 (convert_predict_data.py)
 
 - 读取`data_predict/`目录下的所有Excel文件
 - 使用与训练数据相同的处理逻辑生成宽表
 - 确保特征与训练数据保持一致
 - 生成用于预测的全局宽表`ml_wide_table_predict_global.csv`
+- 检查预测数据特征字段与训练时使用的特征字段是否匹配
 
-### 2. 使用模型进行预测 (predict.py)
+### 7. 使用模型进行预测 (predict.py)
 
 - 加载训练好的GBDT和LR模型
 - 加载特征配置文件
@@ -110,6 +128,7 @@
 - 使用GBDT模型获取叶子节点索引
 - 对叶子节点进行One-Hot编码
 - 使用LR模型进行预测
+- 生成预测解释性信息（重要特征、SHAP值、决策规则等）
 - 保存预测结果到`output/prediction_results.csv`
 
 ## 特征类型识别机制
@@ -185,10 +204,11 @@ file_name,column_name,feature_type
 - `label_train/*.xlsx`: 原始标签Excel文件
 - `ml_wide_table_global.csv`: 经过处理后生成的全局宽表，用于机器学习建模
 - `ml_wide_table_predict_global.csv`: 经过处理后生成的全局宽表，用于预测
+- `ml_wide_table_with_label.csv`: 带有真实标签的全局宽表
 - `feature_dictionary_global.csv`: 全局宽表中各字段的描述信息
 - `features.csv`: 特征配置文件，定义特征类型（连续/类别）
 - `gbdt_model.pkl`和`lr_model.pkl`: 训练好的GBDT和LR模型
-- `prediction_results.csv`: 预测结果文件，包含样本ID和预测概率
+- `prediction_results.csv`: 预测结果文件，包含样本ID、预测概率和解释性信息
 
 ## 模型评估结果
 
@@ -238,6 +258,20 @@ python convert_predict_data.py
 python predict.py
 ```
 该脚本会加载训练好的模型，对预测数据进行预测，并将结果保存到`output/prediction_results.csv`。
+
+3. **测试预测功能（仅处理少量数据）**
+```bash
+python test_predict_simple.py
+```
+该脚本会加载训练好的模型，仅对预测数据的前10行进行预测，用于快速测试预测功能。
+
+## 预测结果说明
+
+预测结果保存在`output/prediction_results.csv`文件中，包含以下列：
+- `Id`: 样本ID
+- `PredictedProb`: 预测概率（0-1之间）
+- `top_features`: 前3个最重要的特征及其SHAP值
+- `top_rules`: 前3个决策规则
 
 ## 开发约定
 
