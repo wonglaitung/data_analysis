@@ -16,12 +16,12 @@ labels = np.concatenate([np.ones(n_ones), np.zeros(n_zeros)])
 
 df.insert(1, 'Label', labels.astype(int))
 
-# 保存到data/train.csv
-df.to_csv('data/train.csv', index=False)
+# 保存到data_train/train.csv
+df.to_csv('data_train/train.csv', index=False)
 
 # 复制前100条数据到test.csv，并删除Label字段
 test_df = df.head(100).drop('Label', axis=1)
-test_df.to_csv('data/test.csv', index=False)
+test_df.to_csv('data_train/test.csv', index=False)
 
-print("✅ 已将ml_wide_table_global.csv复制到data/train.csv，并添加了Label字段")
-print("✅ 已复制前100条数据到data/test.csv，并删除了Label字段")
+print("✅ 已将ml_wide_table_global.csv复制到data_train/train.csv，并添加了Label字段")
+print("✅ 已复制前100条数据到data_train/test.csv，并删除了Label字段")
