@@ -19,7 +19,6 @@
 ├── fake_train_data.py      # 生成假的训练和测试数据的脚本
 ├── train_model.py          # GBDT+LR模型训练脚本（仅训练，不进行预测）
 ├── predict.py              # 使用训练好的模型进行预测的脚本
-├── test_predict_simple.py  # 简单预测测试脚本
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
 ├── base_data_processor.py  # 基础数据处理器类
 ├── base_model_processor.py # 基础模型处理器类
@@ -258,12 +257,6 @@ python convert_predict_data.py
 python predict.py
 ```
 该脚本会加载训练好的模型，对预测数据进行预测，并将结果保存到`output/prediction_results.csv`。
-
-3. **测试预测功能（仅处理少量数据）**
-```bash
-python test_predict_simple.py
-```
-该脚本会加载训练好的模型，仅对预测数据的前10行进行预测，用于快速测试预测功能。
 
 ## 预测结果说明
 
