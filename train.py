@@ -88,28 +88,21 @@ def preProcess():
     path = 'data/'
     try:
         df_train = pd.read_csv(path + 'train.csv', encoding='utf-8')
-        df_test = pd.read_csv(path + 'test.csv', encoding='utf-8')
     except UnicodeDecodeError:
         print("⚠️ UTF-8 解码失败，尝试使用 GBK 编码...")
         df_train = pd.read_csv(path + 'train.csv', encoding='gbk')
-        df_test = pd.read_csv(path + 'test.csv', encoding='gbk')
     
-    test_ids = df_test['Id'].copy()
     df_train.drop(['Id'], axis=1, inplace=True)
-    df_test.drop(['Id'], axis=1, inplace=True)
-    
-    df_test['Label'] = -1
-    data = pd.concat([df_train, df_test], ignore_index=True)
-    data = data.fillna(-1)
+    data = df_train.fillna(-1)
     
     data.to_csv('data/data.csv', index=False, encoding='utf-8')
-    return data, test_ids
+    return data
 
 
-# ========== GBDT + LR 核心训练预测函数 ==========
-def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
+# ========== GBDT + LR 核心训练函数 ==========
+def gbdt_lr_train(data, category_feature, continuous_feature):
     """
-    使用 GBDT + LR，增强可解释性输出
+    使用 GBDT + LR 训练模型，增强可解释性输出
     """
     # 创建输出目录
     os.makedirs('output', exist_ok=True)
@@ -122,10 +115,9 @@ def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
         data.drop([col], axis=1, inplace=True)
         data = pd.concat([data, onehot_feats], axis=1)
 
-    train = data[data['Label'] != -1].copy()
-    target = train.pop('Label')
-    test = data[data['Label'] == -1].copy()
-    test.drop(['Label'], axis=1, inplace=True)
+    # 分离特征和标签
+    target = data.pop('Label')
+    train = data.copy()
 
     # 划分训练/验证集
     x_train, x_val, y_train, y_val = train_test_split(
@@ -220,8 +212,8 @@ def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
         print(f"⚠️ SHAP分析失败: {e}")
 
     # ========== Step 3: 获取叶子节点索引 ==========
-    gbdt_feats_train = model.booster_.predict(train.values, pred_leaf=True)
-    gbdt_feats_test = model.booster_.predict(test.values, pred_leaf=True)
+    gbdt_feats_train = model.booster_.predict(x_train.values, pred_leaf=True)
+    gbdt_feats_val = model.booster_.predict(x_val.values, pred_leaf=True)
 
     print("\n✅ GBDT 叶子节点索引 shape:", gbdt_feats_train.shape)
     print("✅ 前5个样本叶子索引:\n", gbdt_feats_train[:5])
@@ -259,22 +251,22 @@ def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
     gbdt_feats_name = ['gbdt_leaf_' + str(i) for i in range(actual_n_estimators)]
 
     df_train_gbdt_feats = pd.DataFrame(gbdt_feats_train, columns=gbdt_feats_name)
-    df_test_gbdt_feats = pd.DataFrame(gbdt_feats_test, columns=gbdt_feats_name)
+    df_val_gbdt_feats = pd.DataFrame(gbdt_feats_val, columns=gbdt_feats_name)
 
-    train_len = df_train_gbdt_feats.shape[0]
-    data_gbdt = pd.concat([df_train_gbdt_feats, df_test_gbdt_feats], ignore_index=True)
+    data_gbdt = pd.concat([df_train_gbdt_feats, df_val_gbdt_feats], ignore_index=True)
 
     for col in gbdt_feats_name:
         onehot_feats = pd.get_dummies(data_gbdt[col], prefix=col)
         data_gbdt.drop([col], axis=1, inplace=True)
         data_gbdt = pd.concat([data_gbdt, onehot_feats], axis=1)
 
+    train_len = df_train_gbdt_feats.shape[0]
     train_lr = data_gbdt.iloc[:train_len, :].reset_index(drop=True)
-    test_lr = data_gbdt.iloc[train_len:, :].reset_index(drop=True)
+    val_lr = data_gbdt.iloc[train_len:, :].reset_index(drop=True)
 
     # ========== Step 5: 训练 LR 模型 ==========
     x_train_lr, x_val_lr, y_train_lr, y_val_lr = train_test_split(
-        train_lr, target, test_size=0.3, random_state=2018, stratify=target
+        train_lr, y_train, test_size=0.3, random_state=2018, stratify=y_train
     )
 
     lr = LogisticRegression(
@@ -403,15 +395,7 @@ def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
     except Exception as e:
         print("⚠️ SHAP 解释失败（请确保已安装 shap）:", e)
 
-    # ========== Step 7: 预测测试集并保存带 Id 的结果 ==========
-    y_pred = lr.predict_proba(test_lr)[:, 1]
-
-    submission = pd.DataFrame({
-        'Id': test_ids,
-        'Probability': y_pred
-    })
-
-    # ========== Step 8: 保存模型和必要信息用于 API ==========
+    # ========== Step 7: 保存模型和必要信息用于 API ==========
     joblib.dump(model, 'output/gbdt_model.pkl')
     joblib.dump(lr, 'output/lr_model.pkl')
     
@@ -424,16 +408,13 @@ def gbdt_lr_predict(data, category_feature, continuous_feature, test_ids):
     
     print("✅ 模型和元数据已保存，可用于 API 服务")
 
-    submission.to_csv('output/submission_gbdt_lr.csv', index=False)
-    print("\n🎉 预测结果已保存至 output/submission_gbdt_lr.csv（含 Id 列）")
-
-    return y_pred
+    return model, lr
 
 
 # ========== 主程序入口 ==========
 if __name__ == '__main__':
     print("🚀 开始数据预处理...")
-    data, test_ids = preProcess()
+    data = preProcess()
 
     # ========== 从配置文件读取特征定义 ==========
     print("📂 正在加载特征配置...")
@@ -451,13 +432,12 @@ if __name__ == '__main__':
     print("针对以下(__)模型训练日志进行业务解读，输出业务规则报告，最大化创造业务价值。")
 
     print("🧠 开始训练 GBDT + LR 模型...")
-    predictions = gbdt_lr_predict(data, category_feature, continuous_feature, test_ids)
+    model, lr = gbdt_lr_train(data, category_feature, continuous_feature)
 
-    print("\n✅ 模型训练与预测完成！")
+    print("\n✅ 模型训练完成！")
     print("📊 所有可解释性报告已生成在 output/ 目录下：")
     print("   - gbdt_feature_importance.csv")
     print("   - lr_leaf_coefficients.csv")
     print("   - shap_summary_plot.png")
     print("   - shap_waterfall_sample_0.png")
-    print("   - submission_gbdt_lr.csv")
     print("   - actual_n_estimators.csv") 
