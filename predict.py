@@ -6,6 +6,7 @@ from base_model_processor import BaseModelProcessor
 import warnings
 import joblib
 import logging
+import lightgbm as lgb
 from pathlib import Path
 
 warnings.filterwarnings('ignore')
