@@ -10,9 +10,12 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from lightgbm import log_evaluation
 import matplotlib.pyplot as plt
 import joblib
+import platform
 
-plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']  # Windows 微软雅黑
-plt.rcParams['axes.unicode_minus'] = False  # 正常显示负号
+# 仅在Windows系统上设置中文字体
+if platform.system() == 'Windows':
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']  # Windows 微软雅黑
+    plt.rcParams['axes.unicode_minus'] = False  # 正常显示负号
 
 # ========== 工具函数：解析叶子节点路径（增强版） ==========
 def get_leaf_path_enhanced(booster, tree_index, leaf_index, feature_names, category_prefixes):
