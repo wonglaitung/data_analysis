@@ -9,8 +9,8 @@ from sklearn.metrics import log_loss
 from sklearn.metrics import roc_auc_score, roc_curve
 from lightgbm import log_evaluation
 import matplotlib.pyplot as plt
-import joblib
 import platform
+from base_model_processor import BaseModelProcessor
 
 # 仅在Windows系统上设置中文字体
 if platform.system() == 'Windows':
@@ -399,17 +399,17 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
         print("⚠️ SHAP 解释失败（请确保已安装 shap）:", e)
 
     # ========== Step 7: 保存模型和必要信息用于 API ==========
-    joblib.dump(model, 'output/gbdt_model.pkl')
-    joblib.dump(lr, 'output/lr_model.pkl')
+    from base_model_processor import BaseModelProcessor
+    processor = BaseModelProcessor()
+    processor.save_models(model, lr, category_feature, continuous_feature)
     
-    # 🆕 保存实际树数量，供 API 使用
-    pd.Series([actual_n_estimators]).to_csv('output/actual_n_estimators.csv', index=False, header=['n_estimators'])
-    
-    pd.Series(x_train.columns).to_csv('output/train_feature_names.csv', index=False, header=['feature'])
-    pd.Series(category_feature).to_csv('output/category_features.csv', index=False, header=['feature'])
-    pd.Series(continuous_feature).to_csv('output/continuous_features.csv', index=False, header=['feature'])
-    
-    print("✅ 模型和元数据已保存，可用于 API 服务")
+    print("✅ 模型训练完成！")
+    print("📊 所有可解释性报告已生成在 output/ 目录下：")
+    print("   - gbdt_feature_importance.csv")
+    print("   - lr_leaf_coefficients.csv")
+    print("   - shap_summary_plot.png")
+    print("   - shap_waterfall_sample_0.png")
+    print("   - actual_n_estimators.csv") 
 
     return model, lr
 
