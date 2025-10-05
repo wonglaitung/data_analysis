@@ -281,12 +281,37 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     )
     lr.fit(x_train_lr, y_train_lr)
 
-    tr_logloss = log_loss(y_train_lr, lr.predict_proba(x_train_lr)[:, 1])
-    val_logloss = log_loss(y_val_lr, lr.predict_proba(x_val_lr)[:, 1])
-    tr_auc = roc_auc_score(y_train_lr, lr.predict_proba(x_train_lr)[:, 1])
-    val_auc = roc_auc_score(y_val_lr, lr.predict_proba(x_val_lr)[:, 1])
+    # 计算训练集和验证集的预测概率
+    tr_pred_prob = lr.predict_proba(x_train_lr)[:, 1]
+    val_pred_prob = lr.predict_proba(x_val_lr)[:, 1]
+
+    tr_logloss = log_loss(y_train_lr, tr_pred_prob)
+    val_logloss = log_loss(y_val_lr, val_pred_prob)
+    
+    # 计算 KS 统计量
+    def calculate_ks_statistic(y_true, y_pred_prob):
+        from scipy.stats import ks_2samp
+        # 将样本按预测概率排序
+        data = pd.DataFrame({'y_true': y_true, 'y_pred_prob': y_pred_prob})
+        data_sorted = data.sort_values('y_pred_prob', ascending=False)
+        
+        # 计算累积分布
+        cum_positive = (data_sorted['y_true'] == 1).cumsum() / (y_true == 1).sum()
+        cum_negative = (data_sorted['y_true'] == 0).cumsum() / (y_true == 0).sum()
+        
+        # KS统计量是两个累积分布之间的最大差异
+        ks_stat = np.max(np.abs(cum_positive - cum_negative))
+        return ks_stat
+    
+    tr_ks = calculate_ks_statistic(y_train_lr, tr_pred_prob)
+    val_ks = calculate_ks_statistic(y_val_lr, val_pred_prob)
+    
+    tr_auc = roc_auc_score(y_train_lr, tr_pred_prob)
+    val_auc = roc_auc_score(y_val_lr, val_pred_prob)
     print('\n✅ Train LogLoss:', tr_logloss)
     print('✅ Val LogLoss:', val_logloss)
+    print('✅ Train KS:', tr_ks)
+    print('✅ Val KS:', val_ks)
     print('✅ Train AUC:', tr_auc)
     print('✅ Val AUC:', val_auc)
 
