@@ -83,20 +83,7 @@
 - 处理缺失标签值，将其默认设置为0
 - 从`config/lable_key.csv`读取标签文件配置信息
 
-### 3. 数据裁剪 (trim_excel.py)
-
-- 读取`data_train/`目录下的Excel文件
-- 保留每个文件的前100条记录
-- 将处理后的数据保存回原文件
-
-### 4. 假数据生成 (fake_train_data.py)
-
-- 读取`output/ml_wide_table_global.csv`文件
-- 在Id后面增加Label字段，前1000个样本标记为1，其余为0
-- 保存到`data_train/train.csv`
-- 复制前100条数据到`data_train/test.csv`，并删除Label字段
-
-### 5. 模型训练 (train_model.py)
+### 3. 模型训练 (train_model.py)
 
 - 从`config/features.csv`读取特征定义
 - 对类别特征进行One-Hot编码
@@ -107,8 +94,9 @@
 - 保存模型和相关元数据用于API服务
 - 生成ROC曲线图
 - 支持早停机制，自动确定最佳迭代次数
+- 可将(推荐/授信/预警)模型训练日志放入大模型进行分析
 
-### 6. 预测数据处理与转换 (convert_predict_data.py)
+### 4. 预测数据处理与转换 (convert_predict_data.py)
 
 - 读取`data_predict/`目录下的所有Excel文件
 - 使用与训练数据相同的处理逻辑生成宽表
@@ -116,7 +104,7 @@
 - 生成用于预测的全局宽表`ml_wide_table_predict_global.csv`
 - 检查预测数据特征字段与训练时使用的特征字段是否匹配
 
-### 7. 使用模型进行预测 (predict.py)
+### 5. 使用模型进行预测 (predict.py)
 
 - 加载训练好的GBDT和LR模型
 - 加载特征配置文件
@@ -126,6 +114,19 @@
 - 使用LR模型进行预测
 - 生成预测解释性信息（重要特征、特征贡献值、决策规则等）（仅在使用--shap参数时计算特征贡献值）
 - 保存预测结果到`output/prediction_results.csv`
+
+### 6. 数据裁剪 (trim_excel.py) （测试时可选用）
+
+- 读取`data_train/`目录下的Excel文件
+- 保留每个文件的前100条记录
+- 将处理后的数据保存回原文件
+
+### 7. 假数据生成 (fake_train_data.py)（测试时可选用）
+
+- 读取`output/ml_wide_table_global.csv`文件
+- 在Id后面增加Label字段，前1000个样本标记为1，其余为0
+- 保存到`data_train/train.csv`
+- 复制前100条数据到`data_train/test.csv`，并删除Label字段
 
 ## 特征类型识别机制
 
