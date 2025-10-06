@@ -107,7 +107,6 @@
 - 保存模型和相关元数据用于API服务
 - 生成ROC曲线图
 - 支持早停机制，自动确定最佳迭代次数
-- 不再生成预测结果文件（submission_gbdt_lr.csv）
 
 ### 6. 预测数据处理与转换 (convert_predict_data.py)
 
@@ -206,19 +205,6 @@ file_name,column_name,feature_type
 - `features.csv`: 特征配置文件，定义特征类型（连续/类别）
 - `gbdt_model.pkl`和`lr_model.pkl`: 训练好的GBDT和LR模型
 - `prediction_results.csv`: 预测结果文件，包含样本ID、预测概率和解释性信息
-
-## 模型评估结果
-
-### 模型性能指标
-- **训练集 LogLoss**: 0.0348
-- **验证集 LogLoss**: 0.0431
-- **训练集 AUC**: 0.896
-- **验证集 AUC**: 0.814
-
-### 结果解释
-- LogLoss 非常小，说明模型预测概率非常接近真实标签
-- AUC 超过 0.8，说明模型具有很好的区分能力
-- 模型没有明显过拟合，具有良好的泛化能力
 
 ## 使用说明
 
