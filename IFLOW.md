@@ -48,7 +48,6 @@
     ├── ml_wide_table_predict_global.csv # 用于预测的全局宽表
     ├── ml_wide_table_with_label.csv    # 带有真实标签的全局宽表
     ├── gbdt_feature_importance.csv     # GBDT模型特征重要性
-    ├── lr_leaf_coefficients.csv        # LR模型叶子节点系数
     ├── shap_summary_plot.png           # SHAP特征重要性图
     ├── shap_waterfall_sample_0.png     # SHAP单样本瀑布图
     ├── roc_curve.png                   # ROC曲线图
