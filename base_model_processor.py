@@ -106,7 +106,6 @@ class BaseModelProcessor:
                 header=['feature']
             )
             
-            print("✅ 模型和元数据已保存，可用于 API 服务")
             return True
         except Exception as e:
             print(f"❌ 保存模型时出错: {e}")

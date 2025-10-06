@@ -159,7 +159,42 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     actual_n_estimators = model.best_iteration_
     print(f"✅ 实际训练树数量: {actual_n_estimators} (原计划: {n_estimators})")
 
-    # ========== Step 2.5: 输出 GBDT 特征重要性 ==========
+    # ========== 输出模型评估指标 ==========
+    # 计算训练集和验证集的预测概率
+    tr_pred_prob = model.predict_proba(x_train)[:, 1]
+    val_pred_prob = model.predict_proba(x_val)[:, 1]
+
+    tr_logloss = log_loss(y_train, tr_pred_prob)
+    val_logloss = log_loss(y_val, val_pred_prob)
+    
+    # 计算 KS 统计量
+    def calculate_ks_statistic(y_true, y_pred_prob):
+        from scipy.stats import ks_2samp
+        # 将样本按预测概率排序
+        data = pd.DataFrame({'y_true': y_true, 'y_pred_prob': y_pred_prob})
+        data_sorted = data.sort_values('y_pred_prob', ascending=False)
+        
+        # 计算累积分布
+        cum_positive = (data_sorted['y_true'] == 1).cumsum() / (y_true == 1).sum()
+        cum_negative = (data_sorted['y_true'] == 0).cumsum() / (y_true == 0).sum()
+        
+        # KS统计量是两个累积分布之间的最大差异
+        ks_stat = np.max(np.abs(cum_positive - cum_negative))
+        return ks_stat
+    
+    tr_ks = calculate_ks_statistic(y_train, tr_pred_prob)
+    val_ks = calculate_ks_statistic(y_val, val_pred_prob)
+    
+    tr_auc = roc_auc_score(y_train, tr_pred_prob)
+    val_auc = roc_auc_score(y_val, val_pred_prob)
+    print('\n✅ Train LogLoss:', tr_logloss)
+    print('✅ Val LogLoss:', val_logloss)
+    print('✅ Train KS:', tr_ks)
+    print('✅ Val KS:', val_ks)
+    print('✅ Train AUC:', tr_auc)
+    print('✅ Val AUC:', val_auc)
+
+    # ========== Step 2.5: 输出 GBDT 特征重要性（含SHAP影响方向） ==========
     # 获取 Gain 类型的重要性（更准确反映特征影响）
     gain_importance = model.booster_.feature_importance(importance_type='gain')
     # 获取 Split 类型的重要性（特征被用于分裂的次数）
@@ -170,13 +205,6 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
         'Gain_Importance': gain_importance,
         'Split_Importance': split_importance
     }).sort_values('Gain_Importance', ascending=False)
-
-    print("\n" + "="*60)
-    print("📊 GBDT Top 20 重要特征 (按 Gain 排序):")
-    print("="*60)
-    print(feat_imp.head(20))
-    feat_imp.to_csv('output/gbdt_feature_importance.csv', index=False)
-    print("✅ 已保存至 output/gbdt_feature_importance.csv")
     
     # ========== 增加：通过SHAP值分析特征影响方向 ==========
     try:        
@@ -202,52 +230,26 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
         # 根据平均SHAP值判断影响方向：正数为正向影响，负数为负向影响
         feat_imp['Impact_Direction'] = feat_imp['Mean_SHAP_Value'].apply(lambda x: 'Positive' if x > 0 else 'Negative')
         
-        # 重新保存包含SHAP信息的特征重要性文件
-        feat_imp.to_csv('output/gbdt_feature_importance.csv', index=False)
-        print("✅ 已更新特征重要性文件，包含SHAP影响方向")
-        
-        # 显示前20个重要特征的SHAP信息（仅显示Feature、Gain_Importance和Impact_Direction）
-        print("\n📊 GBDT Top 20 重要特征 (含SHAP影响方向):")
-        print("="*60)
-        print(feat_imp[['Feature', 'Gain_Importance', 'Impact_Direction']].head(20))
-        
     except Exception as e:
         print(f"⚠️ SHAP分析失败: {e}")
+        # 如果SHAP分析失败，仍保留基本的特征重要性信息
+        feat_imp['Impact_Direction'] = 'Unknown'
+    
+    # 保存包含所有信息的特征重要性文件
+    feat_imp.to_csv('output/gbdt_feature_importance.csv', index=False)
+    print("✅ 已保存特征重要性文件至 output/gbdt_feature_importance.csv")
+    
+    # 显示前20个重要特征的完整信息
+    print("\n" + "="*60)
+    print("📊 GBDT Top 20 重要特征 (含SHAP影响方向):")
+    print("="*60)
+    print(feat_imp[['Feature', 'Gain_Importance', 'Split_Importance', 'Impact_Direction']].head(20))
 
     # ========== Step 3: 获取叶子节点索引 ==========
     gbdt_feats_train = model.booster_.predict(x_train.values, pred_leaf=True)
     gbdt_feats_val = model.booster_.predict(x_val.values, pred_leaf=True)
 
-    print("\n✅ GBDT 叶子节点索引 shape:", gbdt_feats_train.shape)
-    print("✅ 前5个样本叶子索引:\n", gbdt_feats_train[:5])
-
-    # ========== Step 3.5: 示例样本叶子路径 + 规则解析 ==========
-    print("\n" + "="*70)
-    print("🔍 解析叶子节点示例：gbdt_leaf_5_22")
-    print("="*70)
-    
-    try:
-        # 生成类别前缀列表（用于识别 one-hot 列）
-        category_prefixes = [col + "_" for col in category_feature]
-        
-        # 解析第5棵树、第22号叶子
-        leaf_rule = get_leaf_path_enhanced(
-            model.booster_, 
-            tree_index=5, 
-            leaf_index=22, 
-            feature_names=x_train.columns.tolist(),
-            category_prefixes=category_prefixes
-        )
-        
-        if leaf_rule:
-            print(f"✅ 叶子节点 gbdt_leaf_5_22 的决策路径：")
-            for i, rule in enumerate(leaf_rule, 1):
-                print(f"   {i}. {rule}")
-        else:
-            print("⚠️ 未找到该叶子节点路径（可能索引越界或树结构变化）")
-            
-    except Exception as e:
-        print("⚠️ 解析失败:", e)
+    # 不再输出叶子节点索引的详细信息
 
     # ========== Step 4: 对叶子节点做 One-Hot 编码 ==========
     # 🆕 使用 actual_n_estimators 替代硬编码 n_estimators
@@ -281,40 +283,6 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     )
     lr.fit(x_train_lr, y_train_lr)
 
-    # 计算训练集和验证集的预测概率
-    tr_pred_prob = lr.predict_proba(x_train_lr)[:, 1]
-    val_pred_prob = lr.predict_proba(x_val_lr)[:, 1]
-
-    tr_logloss = log_loss(y_train_lr, tr_pred_prob)
-    val_logloss = log_loss(y_val_lr, val_pred_prob)
-    
-    # 计算 KS 统计量
-    def calculate_ks_statistic(y_true, y_pred_prob):
-        from scipy.stats import ks_2samp
-        # 将样本按预测概率排序
-        data = pd.DataFrame({'y_true': y_true, 'y_pred_prob': y_pred_prob})
-        data_sorted = data.sort_values('y_pred_prob', ascending=False)
-        
-        # 计算累积分布
-        cum_positive = (data_sorted['y_true'] == 1).cumsum() / (y_true == 1).sum()
-        cum_negative = (data_sorted['y_true'] == 0).cumsum() / (y_true == 0).sum()
-        
-        # KS统计量是两个累积分布之间的最大差异
-        ks_stat = np.max(np.abs(cum_positive - cum_negative))
-        return ks_stat
-    
-    tr_ks = calculate_ks_statistic(y_train_lr, tr_pred_prob)
-    val_ks = calculate_ks_statistic(y_val_lr, val_pred_prob)
-    
-    tr_auc = roc_auc_score(y_train_lr, tr_pred_prob)
-    val_auc = roc_auc_score(y_val_lr, val_pred_prob)
-    print('\n✅ Train LogLoss:', tr_logloss)
-    print('✅ Val LogLoss:', val_logloss)
-    print('✅ Train KS:', tr_ks)
-    print('✅ Val KS:', val_ks)
-    print('✅ Train AUC:', tr_auc)
-    print('✅ Val AUC:', val_auc)
-
     # 添加ROC曲线可视化
     fpr, tpr, _ = roc_curve(y_val_lr, lr.predict_proba(x_val_lr)[:, 1])
     plt.figure(figsize=(8, 6))
@@ -336,13 +304,6 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
         'Leaf_Feature': x_train_lr.columns,
         'Coefficient': lr.coef_[0]
     }).sort_values('Coefficient', key=abs, ascending=False)
-
-    print("\n" + "="*60)
-    print("📊 LR Top 20 重要叶子特征（按系数绝对值排序）:")
-    print("="*60)
-    print(lr_coef.head(20))
-    lr_coef.to_csv('output/lr_leaf_coefficients.csv', index=False)
-    print("✅ 已保存至 output/lr_leaf_coefficients.csv")
 
     # ========== Step 5.6: 对高权重叶子进行规则解析 ==========
     print("\n" + "="*70)
@@ -379,6 +340,10 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
                         print("   ⚠️ 路径未找到")
                 except Exception as e:
                     print(f"   ⚠️ 解析失败: {e}")
+
+    
+
+    
 
     # ========== Step 6: SHAP 解释（全局 + 单样本） ==========
     print("\n" + "="*60)
@@ -431,7 +396,6 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     print("✅ 模型训练完成！")
     print("📊 所有可解释性报告已生成在 output/ 目录下：")
     print("   - gbdt_feature_importance.csv")
-    print("   - lr_leaf_coefficients.csv")
     print("   - shap_summary_plot.png")
     print("   - shap_waterfall_sample_0.png")
     print("   - actual_n_estimators.csv") 
@@ -465,7 +429,6 @@ if __name__ == '__main__':
     print("\n✅ 模型训练完成！")
     print("📊 所有可解释性报告已生成在 output/ 目录下：")
     print("   - gbdt_feature_importance.csv")
-    print("   - lr_leaf_coefficients.csv")
     print("   - shap_summary_plot.png")
     print("   - shap_waterfall_sample_0.png")
     print("   - actual_n_estimators.csv") 
