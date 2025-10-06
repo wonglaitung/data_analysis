@@ -1,5 +1,5 @@
 import os
-os.environ["NUMBA_DISABLE_TBB"] = "1"
+#os.environ["NUMBA_DISABLE_TBB"] = "1"
 import pandas as pd
 import numpy as np
 from base_model_processor import BaseModelProcessor
@@ -187,21 +187,16 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
         # 如果不返回解释或不计算SHAP值，直接返回概率
         return [{"probability": round(float(p), 4), "explanation": None} for p in probabilities]
 
-    # Step 4: SHAP 解释
-    shap_values_batch = None
-    explainer = None
+    # Step 4: 特征贡献解释（使用LightGBM内置功能替代SHAP）
+    contrib_values_batch = None
     if calculate_shap:
         try:
-            import shap
-            import matplotlib.pyplot as plt
-            import base64
-            import io
-            explainer = shap.TreeExplainer(gbdt_model.booster_)
-            shap_values_batch = explainer.shap_values(batch_df)
-            if isinstance(shap_values_batch, list):
-                shap_values_batch = shap_values_batch[1]
+            # 使用LightGBM内置的pred_contrib功能计算特征贡献
+            contrib_values_batch = gbdt_model.booster_.predict(batch_df.values, pred_contrib=True)
+            # contrib_values_batch的形状为 (n_samples, n_features + 1)
+            # 最后一列是期望值（base value），前面的列是各特征的贡献值
         except Exception as e:
-            logging.error(f"SHAP 初始化失败: {e}")
+            logging.error(f"特征贡献计算失败: {e}")
             # 返回空解释
             return [{
                 "probability": round(float(probabilities[i]), 4),
@@ -213,7 +208,7 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
                 }
             } for i in range(len(sample_df_list))]
     else:
-        # 如果不计算SHAP值，返回空解释
+        # 如果不计算特征贡献，返回空解释
         return [{
             "probability": round(float(probabilities[i]), 4),
             "explanation": {
@@ -226,11 +221,12 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
 
     results = []
     for idx in range(len(sample_df_list)):
-        shap_vals = shap_values_batch[idx]
-        feature_imp = [(train_feature_names[i], float(shap_vals[i])) for i in range(len(shap_vals))]
+        # 获取当前样本的特征贡献值（排除最后的期望值列）
+        contrib_vals = contrib_values_batch[idx, :-1]
+        feature_imp = [(train_feature_names[i], float(contrib_vals[i])) for i in range(len(contrib_vals))]
         feature_imp.sort(key=lambda x: abs(x[1]), reverse=True)
         important_features = [{"feature": feat, "shap_value": round(val, 4)} for feat, val in feature_imp[:3]]
-        top_shap_features = [feat for feat, val in feature_imp[:5]]
+        top_contrib_features = [feat for feat, val in feature_imp[:5]]
         leaf_indices = leaf_indices_batch[idx]
 
         # 原始路径规则
@@ -255,12 +251,12 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
             rule = get_leaf_path_enhanced(gbdt_model.booster_, tree_idx, leaf_idx, train_feature_names, category_prefixes)
             if rule:
                 for r in rule:
-                    for feat in top_shap_features:
+                    for feat in top_contrib_features:
                         if feat in r or (feat.split('_')[0] + " " in r) or (feat.split('_')[0] + " ==" in r):
-                            shap_val = next((val for f, val in feature_imp if f == feat), 0)
-                            rule_with_shap = f"{r} (SHAP: {shap_val:+.4f})"
-                            if rule_with_shap not in feature_rules:
-                                feature_rules.append(rule_with_shap)
+                            contrib_val = next((val for f, val in feature_imp if f == feat), 0)
+                            rule_with_contrib = f"{r} (贡献值: {contrib_val:+.4f})"
+                            if rule_with_contrib not in feature_rules:
+                                feature_rules.append(rule_with_contrib)
                             break
                     if len(feature_rules) >= 5:
                         break
@@ -268,21 +264,29 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
                 break
 
         # 生成图（仅第一个样本）
+        # 由于不再使用SHAP，此部分将生成一个简单的特征贡献图
         shap_plot_b64 = ""
-        if generate_plot and idx == 0 and explainer is not None:
+        if generate_plot and idx == 0:
             try:
+                import matplotlib.pyplot as plt
+                import base64
+                import io
+                
+                # 获取前10个最重要的特征及其贡献值
+                top_features_plot = feature_imp[:10]
+                features_plot = [feat for feat, _ in top_features_plot]
+                contribs_plot = [val for _, val in top_features_plot]
+                
+                # 创建水平条形图
                 plt.figure(figsize=(10, 6))
-                shap.waterfall_plot(
-                    shap.Explanation(
-                        values=shap_vals,
-                        base_values=explainer.expected_value,
-                        data=batch_df.iloc[idx],
-                        feature_names=batch_df.columns.tolist()
-                    ),
-                    show=False
-                )
-                plt.title("SHAP Explanation for Prediction", fontsize=14)
+                y_pos = range(len(features_plot))
+                colors = ['green' if x > 0 else 'red' for x in contribs_plot]
+                plt.barh(y_pos, contribs_plot, color=colors)
+                plt.yticks(y_pos, features_plot)
+                plt.xlabel('Feature Contribution')
+                plt.title('Top 10 Feature Contributions for Prediction')
                 plt.tight_layout()
+                
                 buf = io.BytesIO()
                 plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
                 plt.close()
@@ -290,7 +294,7 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
                 shap_plot_b64 = "image/png;base64," + base64.b64encode(buf.read()).decode('utf-8')
                 buf.close()
             except Exception as e:
-                logging.warning(f"SHAP plot generation failed: {e}")
+                logging.warning(f"特征贡献图生成失败: {e}")
 
         explanation = {
             "important_features": important_features,

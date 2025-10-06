@@ -1,5 +1,5 @@
 import os
-os.environ["NUMBA_DISABLE_TBB"] = "1"
+#os.environ["NUMBA_DISABLE_TBB"] = "1"
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -159,7 +159,7 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     actual_n_estimators = model.best_iteration_
     print(f"✅ 实际训练树数量: {actual_n_estimators} (原计划: {n_estimators})")
 
-    # ========== Step 2.5: 输出 GBDT 特征重要性（含SHAP影响方向） ==========
+    # ========== Step 2.5: 输出 GBDT 特征重要性（含影响方向） ==========
     # 获取 Gain 类型的重要性（更准确反映特征影响）
     gain_importance = model.booster_.feature_importance(importance_type='gain')
     # 获取 Split 类型的重要性（特征被用于分裂的次数）
@@ -171,29 +171,25 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
         'Split_Importance': split_importance
     }).sort_values('Gain_Importance', ascending=False)
     
-    # ========== 增加：通过SHAP值分析特征影响方向 ==========
-    try:        
-        import shap
-        
+    # ========== 增加：通过LightGBM内置功能分析特征影响方向 ==========
+    try:
         print("\n" + "="*60)
-        print("🧠 正在通过SHAP分析特征影响方向...")
+        print("🧠 正在通过LightGBM内置功能分析特征影响方向...")
         print("="*60)
         
-        # 创建SHAP解释器
-        explainer = shap.TreeExplainer(model.booster_)
+        # 获取训练集样本的特征贡献值（SHAP-like values）
+        contrib_values = model.booster_.predict(x_train.values, pred_contrib=True)
         
-        # 为了提高效率，只使用一部分数据计算SHAP值
-        sample_size = min(100, len(x_train))
-        x_train_sample = x_train.iloc[:sample_size]
-        shap_values = explainer.shap_values(x_train_sample)
+        # contrib_values的形状为 (n_samples, n_features + 1)
+        # 最后一列是期望值（base value），前面的列是各特征的贡献值
         
-        # 计算每个特征的平均SHAP值，用于判断影响方向
-        mean_shap_values = np.mean(shap_values, axis=0)
+        # 计算每个特征的平均贡献值，用于判断影响方向
+        mean_contrib_values = np.mean(contrib_values[:, :-1], axis=0)  # 排除最后一列期望值
         
-        # 将平均SHAP值添加到特征重要性DataFrame中
-        feat_imp['Mean_SHAP_Value'] = mean_shap_values
-        # 根据平均SHAP值判断影响方向：正数为正向影响，负数为负向影响
-        feat_imp['Impact_Direction'] = feat_imp['Mean_SHAP_Value'].apply(lambda x: 'Positive' if x > 0 else 'Negative')
+        # 将平均贡献值添加到特征重要性DataFrame中
+        feat_imp['Mean_Contrib_Value'] = mean_contrib_values
+        # 根据平均贡献值判断影响方向：正数为正向影响，负数为负向影响
+        feat_imp['Impact_Direction'] = feat_imp['Mean_Contrib_Value'].apply(lambda x: 'Positive' if x > 0 else 'Negative')
         
         # 保存包含所有信息的特征重要性文件
         feat_imp.to_csv('output/gbdt_feature_importance.csv', index=False)
@@ -201,13 +197,13 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
         
         # 显示前20个重要特征的完整信息
         print("\n" + "="*60)
-        print("📊 GBDT Top 20 重要特征 (含SHAP影响方向):")
+        print("📊 GBDT Top 20 重要特征 (含影响方向):")
         print("="*60)
         print(feat_imp[['Feature', 'Gain_Importance', 'Split_Importance', 'Impact_Direction']].head(20))
         
     except Exception as e:
-        print(f"⚠️ SHAP分析失败: {e}")
-        # 如果SHAP分析失败，仍保留基本的特征重要性信息
+        print(f"⚠️ 特征贡献分析失败: {e}")
+        # 如果分析失败，仍保留基本的特征重要性信息
         feat_imp['Impact_Direction'] = 'Unknown'
 
     # ========== Step 3: 获取叶子节点索引 ==========
@@ -347,48 +343,13 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
                 except Exception as e:
                     print(f"   ⚠️ 解析失败: {e}")
 
-    # ========== Step 6: SHAP 解释（全局 + 单样本） ==========
+    # ========== Step 6: 特征贡献可视化（替代SHAP） ==========
     print("\n" + "="*60)
-    print("🎨 正在生成 SHAP 可解释性图表...")
+    print("🎨 正在生成特征贡献可视化图表...")
     print("="*60)
     
-    try:
-        import shap
-        explainer = shap.TreeExplainer(model.booster_)
-        
-        sample_size = min(100, len(x_val))
-        x_val_sample = x_val.iloc[:sample_size]
-        shap_values = explainer.shap_values(x_val_sample)
-
-        # 1. 全局特征重要性图
-        plt.figure(figsize=(12, 8))
-        shap.summary_plot(shap_values, x_val_sample, feature_names=x_val_sample.columns.tolist(), show=False)
-        plt.title("SHAP Feature Importance (GBDT)", fontsize=16)
-        plt.tight_layout()
-        plt.savefig("output/shap_summary_plot.png", dpi=150, bbox_inches='tight')
-        plt.close()
-        print("✅ SHAP 全局特征重要性图已保存: output/shap_summary_plot.png")
-
-        # 2. 单样本瀑布图（第0个样本）
-        if len(shap_values) > 0:
-            plt.figure(figsize=(12, 8))
-            shap.waterfall_plot(
-                shap.Explanation(
-                    values=shap_values[0],
-                    base_values=explainer.expected_value,
-                    data=x_val_sample.iloc[0],
-                    feature_names=x_val_sample.columns.tolist()
-                ),
-                show=False
-            )
-            plt.title("SHAP Waterfall Plot - Sample 0", fontsize=16)
-            plt.tight_layout()
-            plt.savefig("output/shap_waterfall_sample_0.png", dpi=150, bbox_inches='tight')
-            plt.close()
-            print("✅ SHAP 单样本瀑布图已保存: output/shap_waterfall_sample_0.png")
-
-    except Exception as e:
-        print("⚠️ SHAP 解释失败（请确保已安装 shap）:", e)
+    # 由于使用了LightGBM内置的特征贡献计算，不再生成SHAP图表
+    print("ℹ️  已使用LightGBM内置功能计算特征贡献，不再生成SHAP图表")
 
     # ========== Step 7: 保存模型和必要信息用于 API ==========
     from base_model_processor import BaseModelProcessor
@@ -399,8 +360,6 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     print("📊 所有可解释性报告已生成在 output/ 目录下：")
     print("   - gbdt_feature_importance.csv")
     print("   - lr_leaf_coefficients.csv")
-    print("   - shap_summary_plot.png")
-    print("   - shap_waterfall_sample_0.png")
     print("   - actual_n_estimators.csv") 
 
     return model, lr
@@ -424,7 +383,7 @@ if __name__ == '__main__':
     print("✅ 将下面的内容复制到大模型内进行解读（不包括此三行）")
     print("✅ ======================================\n")
 
-    print("对以下(推荐/授信/预警)模型训练日志进行分析，输出银行业务人员可以理解的解读报告。\n")
+    print("对以下(推荐/授信/预警)模型训练日志进行分析，输出银行业务人员可以理解的解读报告，通过模型分析赋能业务。\n")
 
     print("🧠 开始训练 GBDT + LR 模型...")
     model, lr = gbdt_lr_train(data, category_feature, continuous_feature)
@@ -433,6 +392,4 @@ if __name__ == '__main__':
     print("📊 所有可解释性报告已生成在 output/ 目录下：")
     print("   - gbdt_feature_importance.csv")
     print("   - lr_leaf_coefficients.csv")
-    print("   - shap_summary_plot.png")
-    print("   - shap_waterfall_sample_0.png")
     print("   - actual_n_estimators.csv") 
