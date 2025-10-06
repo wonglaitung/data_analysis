@@ -65,6 +65,7 @@ python train_model.py
 - 模型文件（`gbdt_model.pkl`和`lr_model.pkl`）
 - 模型评估报告（`roc_curve.png`等）
 - 特征重要性分析（`gbdt_feature_importance.csv`）
+- 可将(推荐/授信/预警)模型训练日志放入大模型进行分析
 
 ### 3.2 预测阶段（业务人员使用）
 
@@ -145,7 +146,7 @@ python predict.py --shap
 ## 6. 常见问题解答
 
 ### Q1: 推荐结果不准确怎么办？
-A: 请检查输入数据质量，确保数据完整且格式正确。如问题持续存在，请联系数据分析团队。
+A: 请检查输入数据质量，确保数据完整且格式正确。如问题持续存在，请联系技术支持团队。
 
 ### Q2: 如何解释某个客户的高价值推荐？
 A: 使用`python predict.py --shap`命令重新预测，系统会生成该客户的详细解释报告。
@@ -219,6 +220,6 @@ file_name,sheet_name,label_key
 
 ## 8. 技术支持
 
-如有使用问题，请联系数据分析团队：
-- 邮箱：data-analysis@company.com
-- 电话：+86-XXX-XXXX-XXXX
+如有使用问题，请联系技术支持团队：
+- 邮箱：wonglaitung@gmail.com
+- 电话：+852-XXXX-XXXX
