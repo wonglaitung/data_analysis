@@ -8,6 +8,7 @@ import joblib
 import logging
 import lightgbm as lgb
 from pathlib import Path
+import sys
 
 warnings.filterwarnings('ignore')
 
@@ -142,7 +143,7 @@ def preprocess_single_sample(sample_dict, continuous_features, category_features
 
 
 # ========== 核心预测函数 ==========
-def predict_core(sample_df_list, models, return_explanation=True, generate_plot=False):
+def predict_core(sample_df_list, models, return_explanation=True, generate_plot=False, calculate_shap=False):
     """
     与 app.py 中的 predict_core 完全一致
     """
@@ -182,22 +183,37 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
     # Step 3: LR 概率
     probabilities = lr_model.predict_proba(leaf_dummies_combined)[:, 1]
 
-    if not return_explanation:
+    if not return_explanation or not calculate_shap:
+        # 如果不返回解释或不计算SHAP值，直接返回概率
         return [{"probability": round(float(p), 4), "explanation": None} for p in probabilities]
 
     # Step 4: SHAP 解释
-    try:
-        import shap
-        import matplotlib.pyplot as plt
-        import base64
-        import io
-        explainer = shap.TreeExplainer(gbdt_model.booster_)
-        shap_values_batch = explainer.shap_values(batch_df)
-        if isinstance(shap_values_batch, list):
-            shap_values_batch = shap_values_batch[1]
-    except Exception as e:
-        logging.error(f"SHAP 初始化失败: {e}")
-        # 返回空解释
+    shap_values_batch = None
+    explainer = None
+    if calculate_shap:
+        try:
+            import shap
+            import matplotlib.pyplot as plt
+            import base64
+            import io
+            explainer = shap.TreeExplainer(gbdt_model.booster_)
+            shap_values_batch = explainer.shap_values(batch_df)
+            if isinstance(shap_values_batch, list):
+                shap_values_batch = shap_values_batch[1]
+        except Exception as e:
+            logging.error(f"SHAP 初始化失败: {e}")
+            # 返回空解释
+            return [{
+                "probability": round(float(probabilities[i]), 4),
+                "explanation": {
+                    "important_features": [],
+                    "shap_plot_base64": "",
+                    "top_rules": [],
+                    "feature_based_rules": []
+                }
+            } for i in range(len(sample_df_list))]
+    else:
+        # 如果不计算SHAP值，返回空解释
         return [{
             "probability": round(float(probabilities[i]), 4),
             "explanation": {
@@ -253,7 +269,7 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
 
         # 生成图（仅第一个样本）
         shap_plot_b64 = ""
-        if generate_plot and idx == 0:
+        if generate_plot and idx == 0 and explainer is not None:
             try:
                 plt.figure(figsize=(10, 6))
                 shap.waterfall_plot(
@@ -348,7 +364,7 @@ class PredictModel(BaseModelProcessor):
             print(f"❌ 准备预测数据时出错: {e}")
             return None
     
-    def predict_with_explanation(self, predict_df):
+    def predict_with_explanation(self, predict_df, calculate_shap=False):
         """进行预测并生成解释性信息"""
         try:
             # 加载模型和元数据
@@ -377,14 +393,19 @@ class PredictModel(BaseModelProcessor):
                     processed_rows[i] = df.loc[:, ~df.columns.duplicated()]
             
             # 使用predict_core进行预测，返回解释性信息
-            results = predict_core(processed_rows, models, return_explanation=True, generate_plot=False)
+            results = predict_core(processed_rows, models, return_explanation=True, generate_plot=False, calculate_shap=calculate_shap)
             
             # 构造 CSV 结果（完全复刻 app.py）
             csv_results = []
             for r in results:
                 exp = r["explanation"]
-                top_features = "; ".join([f"{feat['feature']}({feat['shap_value']:+.3f})" for feat in exp["important_features"]]) if exp["important_features"] else ""
-                top_rules = "; ".join(exp["top_rules"][:3]) if exp["top_rules"] else ""
+                # 检查exp是否为None
+                if exp is None:
+                    top_features = ""
+                    top_rules = ""
+                else:
+                    top_features = "; ".join([f"{feat['feature']}({feat['shap_value']:+.3f})" for feat in exp["important_features"]]) if exp.get("important_features") else ""
+                    top_rules = "; ".join(exp["top_rules"][:3]) if exp.get("top_rules") else ""
                 csv_results.append({"probability": r["probability"], "top_features": top_features, "top_rules": top_rules})
 
             # 生成结果 DataFrame
@@ -401,7 +422,7 @@ class PredictModel(BaseModelProcessor):
             traceback.print_exc()
             return None
     
-    def run_prediction(self, predict_data_path, output_path="output/prediction_results.csv"):
+    def run_prediction(self, predict_data_path, output_path="output/prediction_results.csv", calculate_shap=False):
         """运行完整的预测流程"""
         print("=== 开始预测流程 ===")
         
@@ -419,7 +440,7 @@ class PredictModel(BaseModelProcessor):
             return False
         
         # 进行预测并生成解释性信息
-        result_df = self.predict_with_explanation(predict_df)
+        result_df = self.predict_with_explanation(predict_df, calculate_shap)
         if result_df is None:
             return False
         
@@ -442,6 +463,9 @@ class PredictModel(BaseModelProcessor):
             return False
 
 def main():
+    # 检查是否有--shap参数
+    calculate_shap = "--shap" in sys.argv
+    
     # 创建预测模型实例
     predictor = PredictModel()
     
@@ -449,10 +473,14 @@ def main():
     predict_data_path = "output/ml_wide_table_predict_global.csv"
     output_path = "output/prediction_results.csv"
     
-    success = predictor.run_prediction(predict_data_path, output_path)
+    success = predictor.run_prediction(predict_data_path, output_path, calculate_shap)
     
     if success:
         print("\n✅ 预测完成!")
+        if calculate_shap:
+            print("✅ SHAP值已计算并包含在结果中")
+        else:
+            print("ℹ️  仅进行预测，未计算SHAP值（使用--shap参数可启用SHAP计算）")
     else:
         print("\n❌ 预测失败!")
 
