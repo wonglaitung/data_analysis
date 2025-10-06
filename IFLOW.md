@@ -48,7 +48,6 @@
     ├── ml_wide_table_predict_global.csv # 用于预测的全局宽表
     ├── ml_wide_table_with_label.csv    # 带有真实标签的全局宽表
     ├── gbdt_feature_importance.csv     # GBDT模型特征重要性
-    
     ├── roc_curve.png                   # ROC曲线图
     ├── gbdt_model.pkl                  # GBDT模型文件
     ├── lr_model.pkl                    # LR模型文件
@@ -160,7 +159,7 @@ file_name,column_name,feature_type
 - 使用GBDT模型获取叶子节点索引
 - 对叶子节点进行One-Hot编码
 - 使用LR模型进行预测
-- 生成预测解释性信息（重要特征、特征贡献值、决策规则等）
+- 生成预测解释性信息（重要特征、特征贡献值、决策规则等）（仅在使用--shap参数时计算特征贡献值）
 - 保存预测结果到`output/prediction_results.csv`
 
 ## 配置文件说明
@@ -252,17 +251,21 @@ python convert_predict_data.py
 
 2. **使用模型进行预测**
 ```bash
+# 仅进行预测（默认，速度较快）
 python predict.py
+
+# 进行预测并计算特征贡献值（较慢但提供可解释性分析）
+python predict.py --shap
 ```
-该脚本会加载训练好的模型，对预测数据进行预测，并将结果保存到`output/prediction_results.csv`。
+该脚本会加载训练好的模型，对预测数据进行预测，并将结果保存到`output/prediction_results.csv`。默认情况下只进行预测，不计算特征贡献值以提高速度。如果需要模型决策的可解释性分析，可以添加`--shap`参数来计算特征贡献值。
 
 ## 预测结果说明
 
 预测结果保存在`output/prediction_results.csv`文件中，包含以下列：
 - `Id`: 样本ID
 - `PredictedProb`: 预测概率（0-1之间）
-- `top_features`: 前3个最重要的特征及其特征贡献值
-- `top_rules`: 前3个决策规则
+- `top_features`: 前3个最重要的特征及其特征贡献值（仅在使用--shap参数时计算）
+- `top_rules`: 前3个决策规则（仅在使用--shap参数时计算）
 
 ## 开发约定
 
