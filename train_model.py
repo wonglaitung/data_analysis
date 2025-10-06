@@ -177,7 +177,7 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
         print("🧠 正在通过LightGBM内置功能分析特征影响方向...")
         print("="*60)
         
-        # 获取训练集样本的特征贡献值（SHAP-like values）
+        # 获取训练集样本的特征贡献值
         contrib_values = model.booster_.predict(x_train.values, pred_contrib=True)
         
         # contrib_values的形状为 (n_samples, n_features + 1)
@@ -343,13 +343,13 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
                 except Exception as e:
                     print(f"   ⚠️ 解析失败: {e}")
 
-    # ========== Step 6: 特征贡献可视化（替代SHAP） ==========
+    # ========== Step 6: 特征贡献可视化 ==========
     print("\n" + "="*60)
     print("🎨 正在生成特征贡献可视化图表...")
     print("="*60)
     
-    # 由于使用了LightGBM内置的特征贡献计算，不再生成SHAP图表
-    print("ℹ️  已使用LightGBM内置功能计算特征贡献，不再生成SHAP图表")
+    # 使用LightGBM内置的特征贡献计算
+    print("ℹ️  已使用LightGBM内置功能计算特征贡献")
 
     # ========== Step 7: 保存模型和必要信息用于 API ==========
     from base_model_processor import BaseModelProcessor
