@@ -6,7 +6,7 @@
 
 1. 将多个Excel格式的数据集转换为用于机器学习的宽表格式
 2. 使用GBDT+LR模型进行二分类训练
-3. 生成模型可解释性报告（特征重要性、SHAP分析等）
+3. 生成模型可解释性报告（特征重要性、特征贡献分析等）
 4. 对新的数据进行预测并提供解释性结果
 
 ## 目录结构
@@ -48,8 +48,7 @@
     ├── ml_wide_table_predict_global.csv # 用于预测的全局宽表
     ├── ml_wide_table_with_label.csv    # 带有真实标签的全局宽表
     ├── gbdt_feature_importance.csv     # GBDT模型特征重要性
-    ├── shap_summary_plot.png           # SHAP特征重要性图
-    ├── shap_waterfall_sample_0.png     # SHAP单样本瀑布图
+    
     ├── roc_curve.png                   # ROC曲线图
     ├── gbdt_model.pkl                  # GBDT模型文件
     ├── lr_model.pkl                    # LR模型文件
@@ -139,7 +138,7 @@ file_name,column_name,feature_type
 - 训练GBDT模型并获取叶子节点索引
 - 对叶子节点进行One-Hot编码
 - 训练LR模型
-- 生成模型可解释性报告（特征重要性、SHAP分析、叶子节点规则解析等）
+- 生成模型可解释性报告（特征重要性、特征贡献分析、叶子节点规则解析等）
 - 保存模型和相关元数据用于API服务
 - 生成ROC曲线图
 - 支持早停机制，自动确定最佳迭代次数
@@ -161,7 +160,7 @@ file_name,column_name,feature_type
 - 使用GBDT模型获取叶子节点索引
 - 对叶子节点进行One-Hot编码
 - 使用LR模型进行预测
-- 生成预测解释性信息（重要特征、SHAP值、决策规则等）
+- 生成预测解释性信息（重要特征、特征贡献值、决策规则等）
 - 保存预测结果到`output/prediction_results.csv`
 
 ## 配置文件说明
@@ -262,7 +261,7 @@ python predict.py
 预测结果保存在`output/prediction_results.csv`文件中，包含以下列：
 - `Id`: 样本ID
 - `PredictedProb`: 预测概率（0-1之间）
-- `top_features`: 前3个最重要的特征及其SHAP值
+- `top_features`: 前3个最重要的特征及其特征贡献值
 - `top_rules`: 前3个决策规则
 
 ## 开发约定
@@ -273,4 +272,4 @@ python predict.py
 - 使用`psutil`和`gc`库进行内存管理
 - 使用LightGBM进行GBDT模型训练
 - 使用scikit-learn进行LR模型训练
-- 使用SHAP进行模型可解释性分析
+- 使用LightGBM内置功能进行模型可解释性分析

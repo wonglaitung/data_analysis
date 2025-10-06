@@ -184,10 +184,10 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
     probabilities = lr_model.predict_proba(leaf_dummies_combined)[:, 1]
 
     if not return_explanation or not calculate_shap:
-        # 如果不返回解释或不计算SHAP值，直接返回概率
+        # 如果不返回解释或不计算特征贡献值，直接返回概率
         return [{"probability": round(float(p), 4), "explanation": None} for p in probabilities]
 
-    # Step 4: 特征贡献解释（使用LightGBM内置功能替代SHAP）
+    # Step 4: 特征贡献解释（使用LightGBM内置功能计算特征贡献值）
     contrib_values_batch = None
     if calculate_shap:
         try:
@@ -264,7 +264,7 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
                 break
 
         # 生成图（仅第一个样本）
-        # 由于不再使用SHAP，此部分将生成一个简单的特征贡献图
+        # 此部分将生成一个简单的特征贡献图
         shap_plot_b64 = ""
         if generate_plot and idx == 0:
             try:
@@ -482,7 +482,7 @@ def main():
     if success:
         print("\n✅ 预测完成!")
         if calculate_shap:
-            print("✅ SHAP值已计算并包含在结果中")
+            print("✅ 特征贡献值已计算并包含在结果中")
         else:
             print("ℹ️  仅进行预测，未计算SHAP值（使用--shap参数可启用SHAP计算）")
     else:
