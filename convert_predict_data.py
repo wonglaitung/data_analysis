@@ -1,6 +1,6 @@
 import pandas as pd
 import os
-from base_data_processor import BaseDataProcessor
+from base.base_data_processor import BaseDataProcessor
 
 class PredictDataProcessor(BaseDataProcessor):
     def __init__(self):

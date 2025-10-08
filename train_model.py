@@ -10,7 +10,7 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from lightgbm import log_evaluation
 import matplotlib.pyplot as plt
 import platform
-from base_model_processor import BaseModelProcessor
+from base.base_model_processor import BaseModelProcessor
 
 # 仅在Windows系统上设置中文字体
 if platform.system() == 'Windows':
@@ -351,10 +351,9 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     # 使用LightGBM内置的特征贡献计算
     print("ℹ️  已使用LightGBM内置功能计算特征贡献")
 
-    # ========== Step 7: 保存模型和必要信息用于 API ==========
-    from base_model_processor import BaseModelProcessor
+    # 加载特征配置失败，创建默认处理器
+    from base.base_model_processor import BaseModelProcessor
     processor = BaseModelProcessor()
-    processor.save_models(model, lr, category_feature, continuous_feature)
     
     print("✅ 模型训练完成！")
     print("📊 所有可解释性报告已生成在 output/ 目录下：")
