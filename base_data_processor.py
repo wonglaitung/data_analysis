@@ -5,6 +5,39 @@ import re
 from collections import defaultdict
 import psutil
 import gc
+# 导入繁简体转换包
+try:
+    from opencc import OpenCC
+    # 创建转换器实例
+    cc_s2t = OpenCC('s2t')  # 简体到繁体
+    cc_t2s = OpenCC('t2s')  # 繁体到简体
+    HAS_OPENCC = True
+except ImportError:
+    HAS_OPENCC = False
+    print("警告: 未安装opencc-python-reimplemented包，将使用简单的繁简体映射")
+
+# 敏感字段关键词列表（考虑繁简体和英文）
+# 注意：客户编号（cusno, CUSNO, ci, CI）是训练时必须的主键，不是敏感字段
+SENSITIVE_FIELD_KEYWORDS = [
+    # 客户相关（排除客户编号）
+    "客户名称", "客戶名稱", "客户姓名", "客戶姓名", "客户号", "客戶號",
+    "customer name", "client name",
+    # 身份相关
+    "身份证", "身分證", "身分证號碼", "身份证号码", "身分證字號", "身份证字號",
+    "id card", "identity card", "identification number", "id number",
+    # 联系信息
+    "手机号", "手機號", "手机号码", "手機號碼", "电话", "電話", "电话号码", "電話號碼",
+    "mobile", "mobile number", "phone", "phone number", "telephone", "telephone number",
+    # 地址相关
+    "地址", "地址資訊", "地址信息", "住址",
+    "address", "residential address", "home address",
+    # 账户相关
+    "账号", "帳號", "银行账号", "銀行帳號", "账户", "帳戶",
+    "account", "account number", "bank account", "bank account number"
+]
+
+# 主键字段列表（不是敏感字段）
+PRIMARY_KEY_FIELDS = ["cusno", "CUSNO", "ci", "CI", "客户编号", "客戶編號", "customer id", "client id"]
 
 class BaseDataProcessor:
     def normalize_name(self, name):
@@ -18,6 +51,91 @@ class BaseDataProcessor:
         标准化名称，将特殊字符替换为下划线
         """
         return re.sub(r'[^\w]', '_', name)
+
+    def check_sensitive_fields(self, df, file_name):
+        """
+        检查DataFrame中的敏感字段，检测到敏感字段时立即退出程序
+        注意：客户编号（cusno, CUSNO, ci, CI）是训练时必须的主键，不是敏感字段
+        
+        参数:
+        df: DataFrame
+        file_name: 文件名
+        
+        返回:
+        list: 敏感字段列表
+        """
+        sensitive_fields = []
+        
+        for col in df.columns:
+            col_str = str(col).lower() if isinstance(col, str) else str(col)
+            
+            # 检查是否为主键字段
+            is_primary_key = False
+            for pk_field in PRIMARY_KEY_FIELDS:
+                pk_field_lower = pk_field.lower()
+                if pk_field_lower == col_str or pk_field_lower in col_str:
+                    is_primary_key = True
+                    break
+                # 检查繁简体情况
+                if self._contains_chinese_keyword(col_str, pk_field_lower):
+                    is_primary_key = True
+                    break
+            
+            # 如果是主键字段，跳过敏感字段检查
+            if is_primary_key:
+                continue
+            
+            # 检查是否包含敏感关键词
+            for keyword in SENSITIVE_FIELD_KEYWORDS:
+                # 转换为小写进行比较
+                keyword_lower = keyword.lower()
+                
+                # 完全匹配或包含匹配
+                if keyword_lower == col_str or keyword_lower in col_str:
+                    sensitive_fields.append(col)
+                    break
+                
+                # 处理繁简体转换的特殊情况
+                # 检查是否包含关键词的一部分
+                if self._contains_chinese_keyword(col_str, keyword_lower):
+                    sensitive_fields.append(col)
+                    break
+        
+        if sensitive_fields:
+            print(f"⚠️  在文件 {file_name} 中检测到敏感字段: {sensitive_fields}")
+            print("❌ 程序已退出，以防止敏感数据泄露。")
+            exit(1)
+        
+        return sensitive_fields
+
+    def _contains_chinese_keyword(self, col_name, keyword):
+        """
+        检查列名是否包含中文关键词（使用专业的繁简体转换包）
+        
+        参数:
+        col_name: 列名
+        keyword: 关键词
+        
+        返回:
+        bool: 是否包含关键词
+        """
+        # 使用专业的繁简体转换包进行检查
+        if HAS_OPENCC:
+            # 直接检查原始关键词
+            if keyword in col_name:
+                return True
+            
+            # 简体转繁体
+            s2t_keyword = cc_s2t.convert(keyword)
+            if s2t_keyword in col_name:
+                return True
+            
+            # 繁体转简体
+            t2s_keyword = cc_t2s.convert(keyword)
+            if t2s_keyword in col_name:
+                return True
+        
+        return False
 
     def read_config_file(self, file_path, required_columns):
         """
@@ -198,6 +316,9 @@ class BaseDataProcessor:
                 for sheet_name, df in excel_data.items():
                     # 列名转小写并去空格
                     df.columns = [col.strip().lower() if isinstance(col, str) else col for col in df.columns]
+
+                    # 检查敏感字段
+                    sensitive_fields = self.check_sensitive_fields(df, file_name)
 
                     # === 关键：不再添加 source_file / sheet_name ===
                     safe_prefix = self.normalize_name(file_name.replace('.xlsx', ''))
