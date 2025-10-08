@@ -2,7 +2,7 @@ import os
 #os.environ["NUMBA_DISABLE_TBB"] = "1"
 import pandas as pd
 import numpy as np
-from base_model_processor import BaseModelProcessor
+from base.base_model_processor import BaseModelProcessor
 import warnings
 import joblib
 import logging
