@@ -52,12 +52,15 @@
 在系统终端依次运行以下命令：
 ```bash
 # 1. 数据转换处理
+convert_train_data.exe
 python convert_train_data.py
 
 # 2. 添加业务标签
+add_train_label.exe
 python add_train_label.py
 
 # 3. 训练预测模型
+train_model.exe
 python train_model.py
 ```
 
@@ -77,12 +80,15 @@ python train_model.py
 在系统终端运行以下命令：
 ```bash
 # 1. 预测数据转换
+convert_predict_data.exe
 python convert_predict_data.py
 
 # 2. 执行预测（快速模式）
+predict.exe
 python predict.py
 
 # 或者执行预测并生成详细解释（较慢）
+predict.exe --shap
 python predict.py --shap
 ```
 
