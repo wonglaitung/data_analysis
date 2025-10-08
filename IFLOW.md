@@ -28,7 +28,7 @@
 │   ├── features.csv        # 特征配置文件，定义特征类型
 │   ├── primary_key.csv     # 主键配置文件，定义各Excel文件的主键字段
 │   ├── category_type.csv   # 类别特征类型配置文件
-│   └── lable_key.csv       # 标签文件配置文件
+│   └── label_key.csv       # 标签文件配置文件
 ├── data_train/             # 存放训练用的原始数据文件
 │   ├── train.csv           # 训练数据集
 │   ├── test.csv            # 测试数据集
@@ -115,7 +115,7 @@ file_name,column_name,feature_type
 - 将标签数据合并到全局宽表中
 - 生成带标签的训练数据集`data_train/train.csv`和测试数据集`data_train/test.csv`
 - 处理缺失标签值，将其默认设置为0
-- 从`config/lable_key.csv`读取标签文件配置信息
+- 从`config/label_key.csv`读取标签文件配置信息
 
 ### 3. 数据裁剪 (trim_excel.py)
 
@@ -178,7 +178,7 @@ file_name,column_name,feature_type
 - `column_name`: 列名
 - `feature_type`: 特征类型（固定为category）
 
-### 3. 标签配置 (config/lable_key.csv)
+### 3. 标签配置 (config/label_key.csv)
 
 定义标签文件的信息，包含以下列：
 - `file_name`: 标签Excel文件名

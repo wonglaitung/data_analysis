@@ -36,7 +36,7 @@
 根据业务需求配置以下文件，存放在`config/`目录：
 1. `primary_key.csv`：定义各数据文件的主键字段
 2. `category_type.csv`：指定需要作为类别处理的字段
-3. `lable_key.csv`：定义标签文件的信息
+3. `label_key.csv`：定义标签文件的信息
 
 **注意：必须先完成配置文件的设置，才能进行后续的数据转换处理。**
 
@@ -195,7 +195,7 @@ file_name,column_name,feature_type
 - `column_name`：需要强制为类别特征的列名
 - `feature_type`：特征类型（固定值为category）
 
-### 7.3 标签配置文件 (lable_key.csv)
+### 7.3 标签配置文件 (label_key.csv)
 用于定义标签文件的信息，系统将根据此配置从标签文件中提取目标变量。
 
 **格式要求：**
