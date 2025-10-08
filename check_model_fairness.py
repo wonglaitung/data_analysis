@@ -146,6 +146,9 @@ def calculate_fairness_metrics():
         
         data_gbdt = pd.concat([df_train_gbdt_feats, df_val_gbdt_feats], ignore_index=True)
         
+        # 保存一份用于敏感属性分析的原始叶子节点数据
+        original_gbdt_data = data_gbdt.copy()
+        
         for col in gbdt_feats_name:
             # 确保列数据是整数类型
             data_gbdt[col] = data_gbdt[col].astype(int)
@@ -173,6 +176,14 @@ def calculate_fairness_metrics():
         )
         print("✅ 叶子节点特征处理完成")
         
+        # 同时对原始叶子节点数据进行相同的划分，用于敏感属性分析
+        original_val_gbdt = original_gbdt_data.iloc[train_len:, :].reset_index(drop=True)
+        # 注意：这里应该使用y_val而不是y_train，因为original_val_gbdt对应的是验证集数据
+        # 确保使用与x_val_lr相同的划分
+        _, original_x_val_lr, _, y_val_lr_for_sensitive = train_test_split(
+            original_val_gbdt, y_val, test_size=0.3, random_state=2018, stratify=y_val
+        )
+        
     except Exception as e:
         print(f"❌ 叶子节点特征处理失败: {e}")
         import traceback
@@ -184,7 +195,7 @@ def calculate_fairness_metrics():
     print("⚖️  正在计算模型公平性指标...")
     print("="*60)
     
-    # 选择一个类别特征作为敏感属性
+    # 选择一个特征作为敏感属性
     sensitive_attr = None
     
     # 首先尝试使用类别特征作为敏感属性
@@ -218,39 +229,60 @@ def calculate_fairness_metrics():
             import traceback
             traceback.print_exc()
     
-    # 如果没有找到合适的类别特征，创建一个人工的敏感属性列用于演示
+    # 如果没有找到合适的类别特征，尝试使用叶子节点特征作为敏感属性
     if sensitive_attr is None:
-        print("ℹ️  未找到合适的类别特征作为敏感属性，创建人工敏感属性列用于演示")
+        print("ℹ️  未找到合适的类别特征作为敏感属性，尝试使用叶子节点特征")
         try:
-            # 使用LR模型的预测结果创建一个人工的敏感属性
-            # 基于预测概率的中位数将样本分为两组
-            # 为了避免特征名称不匹配的问题，我们先检查x_val_lr的特征名称
-            print(f"ℹ️  x_val_lr 特征数量: {x_val_lr.shape[1]}")
-            print(f"ℹ️  LR模型期望的特征数量: {len(lr_model.feature_names_in_)}")
-            
-            # 确保特征名称匹配
-            if set(x_val_lr.columns) == set(lr_model.feature_names_in_):
-                # 重新排列列以匹配LR模型期望的顺序
-                x_val_lr_aligned = x_val_lr[lr_model.feature_names_in_]
-                y_val_pred_prob_temp = lr_model.predict_proba(x_val_lr_aligned)[:, 1]
-                median_prob = np.median(y_val_pred_prob_temp)
-                sensitive_attr = pd.Series([1 if prob >= median_prob else 0 for prob in y_val_pred_prob_temp])
-                print(f"✅ 人工敏感属性列已创建，包含 {len(sensitive_attr.unique())} 个唯一值: {sensitive_attr.unique()}")
+            # 使用第一个叶子节点特征作为敏感属性
+            # 注意：这里我们使用与y_val_lr相同的划分
+            if len(original_x_val_lr.columns) > 0:
+                first_leaf_col = original_x_val_lr.columns[0]
+                leaf_values = original_x_val_lr[first_leaf_col]
+                # 将叶子节点值分为两组
+                median_value = np.median(leaf_values)
+                sensitive_attr = pd.Series([1 if val >= median_value else 0 for val in leaf_values])
+                print(f"✅ 使用叶子节点特征 '{first_leaf_col}' 作为敏感属性，包含 {len(sensitive_attr.unique())} 个唯一值: {sensitive_attr.unique()}")
             else:
-                print("⚠️  特征名称不匹配，无法使用LR模型预测结果创建敏感属性")
-                # 最后的备选方案：基于样本索引创建
-                sensitive_attr = pd.Series([i % 2 for i in range(len(x_val_lr))])
-                print(f"✅ 人工敏感属性列已创建，包含 {len(sensitive_attr.unique())} 个唯一值: {sensitive_attr.unique()}")
+                print("⚠️  没有可用的叶子节点特征")
+        except Exception as e:
+            print(f"⚠️  使用叶子节点特征作为敏感属性时出错: {e}")
+    
+    # 如果仍然没有找到合适的敏感属性，创建一个人工的敏感属性列用于演示
+    if sensitive_attr is None:
+        print("ℹ️  未找到合适的敏感属性，创建人工敏感属性列用于演示")
+        try:
+            # 基于样本索引创建一个二元敏感属性，长度与x_val_lr一致
+            sensitive_attr = pd.Series([i % 2 for i in range(len(x_val_lr))])
+            print(f"✅ 人工敏感属性列已创建，包含 {len(sensitive_attr.unique())} 个唯一值: {sensitive_attr.unique()}")
         except Exception as e:
             print(f"⚠️  创建人工敏感属性时出错: {e}")
-            # 最后的备选方案：基于样本索引创建
-            try:
-                sensitive_attr = pd.Series([i % 2 for i in range(len(x_val_lr))])
-                print(f"✅ 人工敏感属性列已创建，包含 {len(sensitive_attr.unique())} 个唯一值: {sensitive_attr.unique()}")
-            except Exception as e2:
-                print(f"⚠️  创建人工敏感属性时出错: {e2}")
     
-    if sensitive_attr is not None and len(sensitive_attr) == len(y_val_lr):
+    # 检查敏感属性是否有效
+    if sensitive_attr is not None:
+        unique_count = len(sensitive_attr.unique())
+        print(f"ℹ️  敏感属性唯一值数量: {unique_count}")
+        if unique_count < 2:
+            print("⚠️  敏感属性唯一值过少，无法进行有效的公平性分析")
+            sensitive_attr = None
+        else:
+            print(f"✅ 敏感属性有效，包含 {unique_count} 个唯一值")
+    
+    # 检查敏感属性长度是否与y_val_lr匹配
+    if sensitive_attr is not None:
+        print(f"ℹ️  敏感属性长度: {len(sensitive_attr)}, y_val_lr长度: {len(y_val_lr)}")
+        if len(sensitive_attr) != len(y_val_lr):
+            print("⚠️  敏感属性长度与y_val_lr不匹配，尝试调整")
+            # 调整敏感属性长度以匹配y_val_lr
+            if len(sensitive_attr) > len(y_val_lr):
+                sensitive_attr = sensitive_attr.iloc[:len(y_val_lr)]
+                print(f"✅ 调整后敏感属性长度: {len(sensitive_attr)}")
+            else:
+                # 如果敏感属性长度小于y_val_lr，使用人工敏感属性
+                print("⚠️  敏感属性长度小于y_val_lr，使用人工敏感属性")
+                sensitive_attr = pd.Series([i % 2 for i in range(len(y_val_lr))])
+                print(f"✅ 人工敏感属性列已创建，包含 {len(sensitive_attr.unique())} 个唯一值: {sensitive_attr.unique()}")
+    
+    if sensitive_attr is not None:
         try:
             # 确保特征名称匹配后再进行预测
             if set(x_val_lr.columns) == set(lr_model.feature_names_in_):
@@ -258,9 +290,31 @@ def calculate_fairness_metrics():
                 x_val_lr_aligned = x_val_lr[lr_model.feature_names_in_]
                 # 使用LR模型进行预测
                 y_val_pred_prob = lr_model.predict_proba(x_val_lr_aligned)[:, 1]
+                print("✅ 特征名称匹配，可以进行预测")
             else:
-                print("⚠️  特征名称不匹配，无法进行预测")
-                y_val_pred_prob = None
+                print("⚠️  特征名称不匹配，尝试手动对齐")
+                # 尝试手动对齐特征名称
+                try:
+                    # 获取缺失的特征名称
+                    missing_features = set(lr_model.feature_names_in_) - set(x_val_lr.columns)
+                    extra_features = set(x_val_lr.columns) - set(lr_model.feature_names_in_)
+                    
+                    print(f"ℹ️  缺失特征数量: {len(missing_features)}")
+                    print(f"ℹ️  多余特征数量: {len(extra_features)}")
+                    
+                    # 添加缺失的特征（用0填充）
+                    for feature in missing_features:
+                        x_val_lr[feature] = 0
+                    
+                    # 移除多余的特征
+                    x_val_lr = x_val_lr[lr_model.feature_names_in_]
+                    
+                    # 使用LR模型进行预测
+                    y_val_pred_prob = lr_model.predict_proba(x_val_lr)[:, 1]
+                    print("✅ 特征名称手动对齐成功，可以进行预测")
+                except Exception as align_error:
+                    print(f"⚠️  特征名称手动对齐失败: {align_error}")
+                    y_val_pred_prob = None
                 
             if y_val_pred_prob is not None:
                 # 计算各种公平性指标
