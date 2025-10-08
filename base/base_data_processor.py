@@ -14,7 +14,7 @@ try:
     HAS_OPENCC = True
 except ImportError:
     HAS_OPENCC = False
-    print("警告: 未安装opencc-python-reimplemented包，将使用简单的繁简体映射")
+    print("警告: 未安装opencc-python-reimplemented包，将跳过繁简体转换处理")
 
 # 敏感字段关键词列表（考虑繁简体和英文）
 # 注意：客户编号（cusno, CUSNO, ci, CI）是训练时必须的主键，不是敏感字段
@@ -133,6 +133,10 @@ class BaseDataProcessor:
             # 繁体转简体
             t2s_keyword = cc_t2s.convert(keyword)
             if t2s_keyword in col_name:
+                return True
+        else:
+            # 如果没有安装opencc，则只进行基础的文本匹配
+            if keyword in col_name:
                 return True
         
         return False

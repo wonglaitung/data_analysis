@@ -8,6 +8,7 @@
 2. 使用GBDT+LR模型进行二分类训练
 3. 生成模型可解释性报告（特征重要性、特征贡献分析等）
 4. 对新的数据进行预测并提供解释性结果
+5. 检测模型的公平性，确保对不同群体的客户公平对待
 
 ## 目录结构
 
@@ -19,16 +20,19 @@
 ├── fake_train_data.py      # 生成假的训练和测试数据的脚本
 ├── train_model.py          # GBDT+LR模型训练脚本（仅训练，不进行预测）
 ├── predict.py              # 使用训练好的模型进行预测的脚本
+├── check_model_fairness.py # 检测模型公平性的脚本
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
 ├── base_data_processor.py  # 基础数据处理器类
 ├── base_model_processor.py # 基础模型处理器类
 ├── README.md               # 项目说明文档
+├── Business_User_Guide.md  # 业务用户使用手册
 ├── IFLOW.md                # 项目上下文文档
 ├── config/                 # 配置文件目录
 │   ├── features.csv        # 特征配置文件，定义特征类型
 │   ├── primary_key.csv     # 主键配置文件，定义各Excel文件的主键字段
 │   ├── category_type.csv   # 类别特征类型配置文件
-│   └── label_key.csv       # 标签文件配置文件
+│   ├── label_key.csv       # 标签文件配置文件
+│   └── sensitive_attr.csv  # 敏感属性配置文件，定义用于公平性检测的敏感属性字段
 ├── data_train/             # 存放训练用的原始数据文件
 │   ├── train.csv           # 训练数据集
 │   ├── test.csv            # 测试数据集
@@ -48,7 +52,7 @@
     ├── ml_wide_table_predict_global.csv # 用于预测的全局宽表
     ├── ml_wide_table_with_label.csv    # 带有真实标签的全局宽表
     ├── gbdt_feature_importance.csv     # GBDT模型特征重要性
-    
+    ├── fairness_metrics.csv            # 模型公平性指标
     ├── roc_curve.png                   # ROC曲线图
     ├── gbdt_model.pkl                  # GBDT模型文件
     ├── lr_model.pkl                    # LR模型文件
@@ -115,13 +119,24 @@
 - 生成预测解释性信息（重要特征、特征贡献值、决策规则等）（仅在使用--shap参数时计算特征贡献值）
 - 保存预测结果到`output/prediction_results.csv`
 
-### 6. 数据裁剪 (trim_excel.py) （测试时可选用）
+### 6. 模型公平性检测 (check_model_fairness.py)
+
+- 加载训练好的GBDT和LR模型
+- 从`config/sensitive_attr.csv`读取敏感属性配置
+- 计算多种公平性指标，包括：
+  - 人口统计学公平性(Demographic Parity)
+  - 机会均等(Equal Opportunity)
+  - 均衡几率(Equalized Odds)
+  - 预测公平性(Predictive Parity)
+- 生成公平性检测报告并保存到`output/fairness_metrics.csv`
+
+### 7. 数据裁剪 (trim_excel.py) （测试时可选用）
 
 - 读取`data_train/`目录下的Excel文件
 - 保留每个文件的前100条记录
 - 将处理后的数据保存回原文件
 
-### 7. 假数据生成 (fake_train_data.py)（测试时可选用）
+### 8. 假数据生成 (fake_train_data.py)（测试时可选用）
 
 - 读取`output/ml_wide_table_global.csv`文件
 - 在Id后面增加Label字段，前1000个样本标记为1，其余为0
@@ -186,7 +201,14 @@ file_name,column_name,feature_type
 - `sheet_name`: 工作表名
 - `label_key`: 标签列名
 
-### 4. 特征配置 (config/features.csv)
+### 4. 敏感属性配置 (config/sensitive_attr.csv)
+
+定义用于公平性检测的敏感属性字段，包含以下列：
+- `file_name`: 包含敏感属性的Excel文件名
+- `sheet_name`: 工作表名（可为空）
+- `column_name`: 敏感属性列名
+
+### 5. 特征配置 (config/features.csv)
 
 定义所有特征的类型，包含以下列：
 - `feature_name`: 特征名称
@@ -206,6 +228,7 @@ file_name,column_name,feature_type
 - `features.csv`: 特征配置文件，定义特征类型（连续/类别）
 - `gbdt_model.pkl`和`lr_model.pkl`: 训练好的GBDT和LR模型
 - `prediction_results.csv`: 预测结果文件，包含样本ID、预测概率和解释性信息
+- `fairness_metrics.csv`: 模型公平性指标文件，包含各种公平性指标的得分
 
 ## 使用说明
 
@@ -247,6 +270,12 @@ python predict.py --shap
 ```
 该脚本会加载训练好的模型，对预测数据进行预测，并将结果保存到`output/prediction_results.csv`。默认情况下只进行预测，不计算特征贡献值以提高速度。如果需要模型决策的可解释性分析，可以添加`--shap`参数来计算特征贡献值。
 
+3. **检测模型公平性**
+```bash
+python check_model_fairness.py
+```
+该脚本会加载训练好的模型，从`config/sensitive_attr.csv`读取敏感属性配置，计算多种公平性指标，并将结果保存到`output/fairness_metrics.csv`。
+
 ## 预测结果说明
 
 预测结果保存在`output/prediction_results.csv`文件中，包含以下列：
@@ -254,6 +283,18 @@ python predict.py --shap
 - `PredictedProb`: 预测概率（0-1之间）
 - `top_features`: 前3个最重要的特征及其特征贡献值（仅在使用--shap参数时计算）
 - `top_rules`: 前3个决策规则（仅在使用--shap参数时计算）
+
+## 公平性检测结果说明
+
+公平性检测结果保存在`output/fairness_metrics.csv`文件中，包含以下列：
+- `Metric`: 公平性指标名称
+- `Score`: 公平性得分（0-1之间，越接近1表示越公平）
+
+支持的公平性指标包括：
+- `Demographic Parity`: 人口统计学公平性
+- `Equal Opportunity`: 机会均等
+- `Equalized Odds`: 均衡几率
+- `Predictive Parity`: 预测公平性
 
 ## 开发约定
 
