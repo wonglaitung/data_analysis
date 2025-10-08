@@ -2,11 +2,461 @@ import pandas as pd
 import numpy as np
 import os
 import joblib
-from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
-from base.base_fairness_processor import BaseFairnessProcessor
-from base.base_model_processor import BaseModelProcessor
+import warnings
+warnings.filterwarnings('ignore')
 
+# ========== 基础公平性处理器 ==========
+class BaseFairnessProcessor:
+    """公平性检测处理器"""
+    
+    @staticmethod
+    def calculate_demographic_parity(y_pred, sensitive_attr):
+        """
+        计算 Demographic Parity (人口统计学公平性)
+        """
+        groups = np.unique(sensitive_attr)
+        positive_rates = []
+        
+        for group in groups:
+            mask = sensitive_attr == group
+            positive_rate = np.mean(y_pred[mask])
+            positive_rates.append(positive_rate)
+        
+        # 计算最大差异作为不公平度量
+        dp_diff = np.max(positive_rates) - np.min(positive_rates)
+        return 1 - dp_diff  # 转换为公平性得分 (0-1之间，1表示完全公平)
+
+    @staticmethod
+    def calculate_equal_opportunity(y_true, y_pred, sensitive_attr):
+        """
+        计算 Equal Opportunity (机会均等)
+        """
+        groups = np.unique(sensitive_attr)
+        tpr_rates = []
+        
+        for group in groups:
+            mask = (sensitive_attr == group) & (y_true == 1)
+            if np.sum(mask) > 0:
+                tpr = np.mean(y_pred[mask])
+            else:
+                tpr = 0
+            tpr_rates.append(tpr)
+        
+        # 计算最大差异作为不公平度量
+        eo_diff = np.max(tpr_rates) - np.min(tpr_rates)
+        return 1 - eo_diff  # 转换为公平性得分 (0-1之间，1表示完全公平)
+
+    @staticmethod
+    def calculate_equalized_odds(y_true, y_pred, sensitive_attr):
+        """
+        计算 Equalized Odds (均衡几率)
+        """
+        groups = np.unique(sensitive_attr)
+        tpr_rates = []
+        fpr_rates = []
+        
+        for group in groups:
+            # 计算真阳性率 (TPR)
+            tp_mask = (sensitive_attr == group) & (y_true == 1)
+            if np.sum(tp_mask) > 0:
+                tpr = np.mean(y_pred[tp_mask])
+            else:
+                tpr = 0
+            tpr_rates.append(tpr)
+            
+            # 计算假阳性率 (FPR)
+            fp_mask = (sensitive_attr == group) & (y_true == 0)
+            if np.sum(fp_mask) > 0:
+                fpr = np.mean(y_pred[fp_mask])
+            else:
+                fpr = 0
+            fpr_rates.append(fpr)
+        
+        # 计算TPR和FPR的最大差异
+        tpr_diff = np.max(tpr_rates) - np.min(tpr_rates)
+        fpr_diff = np.max(fpr_rates) - np.min(fpr_rates)
+        
+        # 综合不公平度量
+        eo_diff = (tpr_diff + fpr_diff) / 2
+        return 1 - eo_diff  # 转换为公平性得分 (0-1之间，1表示完全公平)
+
+    @staticmethod
+    def calculate_predictive_parity(y_true, y_pred, sensitive_attr):
+        """
+        计算 Predictive Parity (预测公平性)
+        """
+        groups = np.unique(sensitive_attr)
+        ppv_rates = []
+        
+        for group in groups:
+            # 计算预测值为正的样本中真实值为正的比例 (Positive Predictive Value, PPV)
+            pred_pos_mask = y_pred == 1
+            group_mask = sensitive_attr == group
+            combined_mask = pred_pos_mask & group_mask
+            
+            if np.sum(combined_mask) > 0:
+                ppv = np.mean(y_true[combined_mask])
+            else:
+                ppv = 0
+            ppv_rates.append(ppv)
+        
+        # 计算最大差异作为不公平度量
+        pp_diff = np.max(ppv_rates) - np.min(ppv_rates)
+        return 1 - pp_diff  # 转换为公平性得分 (0-1之间，1表示完全公平)
+
+    @staticmethod
+    def calculate_fairness_metrics(y_true, y_pred, sensitive_attr):
+        """
+        计算所有公平性指标
+        """
+        if sensitive_attr is None:
+            return None
+            
+        # 将预测概率转换为二值预测（阈值设为0.5）
+        y_pred_binary = (y_pred >= 0.5).astype(int)
+        
+        # 计算各种公平性指标
+        demographic_parity = BaseFairnessProcessor.calculate_demographic_parity(y_pred_binary, sensitive_attr)
+        equal_opportunity = BaseFairnessProcessor.calculate_equal_opportunity(y_true, y_pred_binary, sensitive_attr)
+        equalized_odds = BaseFairnessProcessor.calculate_equalized_odds(y_true, y_pred_binary, sensitive_attr)
+        predictive_parity = BaseFairnessProcessor.calculate_predictive_parity(y_true, y_pred_binary, sensitive_attr)
+        
+        # 返回结果
+        fairness_metrics = pd.DataFrame({
+            'Metric': ['Demographic Parity', 'Equal Opportunity', 'Equalized Odds', 'Predictive Parity'],
+            'Score': [demographic_parity, equal_opportunity, equalized_odds, predictive_parity]
+        })
+        
+        return fairness_metrics
+
+# ========== 数据加载器 ==========
+class DataLoader:
+    def __init__(self):
+        self.data = None
+        self.target = None
+        self.train_data = None
+        self.x_train = None
+        self.x_val = None
+        self.y_train = None
+        self.y_val = None
+        
+    def load_training_data(self, data_path='data_train/data.csv'):
+        """加载训练数据"""
+        try:
+            # 加载训练数据
+            self.data = pd.read_csv(data_path)
+            print(f"✅ 训练数据加载成功: {self.data.shape}")
+            
+            # 分离特征和标签
+            self.target = self.data.pop('Label')
+            self.train_data = self.data.copy()
+            
+            # 确保训练数据都是数值类型
+            for col in self.train_data.columns:
+                if self.train_data[col].dtype == 'bool':
+                    self.train_data[col] = self.train_data[col].astype(int)
+                elif self.train_data[col].dtype == 'object':
+                    # 尝试转换对象类型的列
+                    self.train_data[col] = pd.to_numeric(self.train_data[col], errors='coerce').fillna(-1)
+            
+            return True
+        except Exception as e:
+            print(f"❌ 数据加载失败: {e}")
+            return False
+    
+    def split_data(self, test_size=0.2, random_state=2020):
+        """划分训练/验证集"""
+        try:
+            # 划分训练/验证集，保持索引
+            x_train, x_val, y_train, y_val = train_test_split(
+                self.train_data, self.target, test_size=test_size, random_state=random_state, stratify=self.target
+            )
+            
+            # 重置索引，但保留原索引作为列
+            self.x_train = x_train.reset_index(drop=False)
+            self.x_val = x_val.reset_index(drop=False)
+            self.y_train = y_train.reset_index(drop=False)
+            self.y_val = y_val.reset_index(drop=False)
+            
+            print(f"✅ 数据集划分完成: 训练集 {self.x_train.shape}, 验证集 {self.x_val.shape}")
+            return True
+        except Exception as e:
+            print(f"❌ 数据集划分失败: {e}")
+            return False
+
+# ========== 特征处理器 ==========
+class FeatureProcessor:
+    def __init__(self, model_dir="output", config_dir="config"):
+        self.model_dir = model_dir
+        self.config_dir = config_dir
+        self.category_features = []
+        self.continuous_features = []
+        self.train_feature_names = []
+        
+    def load_feature_config(self):
+        """加载特征配置"""
+        try:
+            # 加载特征配置文件
+            features_path = os.path.join(self.config_dir, "features.csv")
+            features_df = pd.read_csv(features_path)
+            self.category_features = features_df[features_df['feature_type'] == 'category']['feature_name'].tolist()
+            self.continuous_features = features_df[features_df['feature_type'] == 'continuous']['feature_name'].tolist()
+            print(f"✅ 特征配置加载成功")
+            print(f"   - 类别特征: {len(self.category_features)} 个")
+            print(f"   - 连续特征: {len(self.continuous_features)} 个")
+            
+            # 加载训练时的特征名称
+            train_features_path = os.path.join(self.model_dir, "train_feature_names.csv")
+            train_features_df = pd.read_csv(train_features_path)
+            self.train_feature_names = train_features_df['feature'].tolist()
+            print(f"✅ 训练时特征名称已加载: {len(self.train_feature_names)} 个特征")
+            return True
+        except Exception as e:
+            print(f"❌ 特征配置加载失败: {e}")
+            return False
+    
+    def encode_categorical_features(self, data):
+        """对类别特征进行One-Hot编码"""
+        try:
+            print("正在进行类别特征One-Hot编码...")
+            encoded_features = []
+            remaining_features = data.columns.tolist()
+            
+            # 处理类别特征
+            for col in self.category_features:
+                if col in data.columns:
+                    # 对类别特征进行One-Hot编码
+                    onehot_df = pd.get_dummies(data[col], prefix=col)
+                    encoded_features.append(onehot_df)
+                    remaining_features.remove(col)
+            
+            # 合并编码后的特征和剩余特征
+            if encoded_features:
+                encoded_data = pd.concat(encoded_features, axis=1)
+                remaining_data = data[remaining_features]
+                processed_data = pd.concat([remaining_data, encoded_data], axis=1)
+                print(f"✅ One-Hot编码完成: {len(encoded_features)} 个类别特征被编码")
+                return processed_data
+            else:
+                print("ℹ️  未发现需要编码的类别特征")
+                return data
+        except Exception as e:
+            print(f"❌ 类别特征编码失败: {e}")
+            return None
+    
+    def align_features(self, data):
+        """确保特征顺序与训练时一致"""
+        try:
+            # 获取训练时的特征名称
+            train_feature_set = set(self.train_feature_names)
+            current_feature_set = set(data.columns)
+            
+            # 检查缺失的特征
+            missing_features = train_feature_set - current_feature_set
+            if missing_features:
+                print(f"⚠️  发现 {len(missing_features)} 个缺失特征，将用0填充")
+                for feature in missing_features:
+                    data[feature] = 0
+            
+            # 移除多余的特征
+            extra_features = current_feature_set - train_feature_set
+            if extra_features:
+                print(f"⚠️  移除 {len(extra_features)} 个多余特征")
+                data = data.drop(columns=list(extra_features))
+            
+            # 按训练时的特征顺序重新排列
+            data = data[self.train_feature_names]
+            print(f"✅ 特征对齐完成: {data.shape[1]} 个特征")
+            return data
+        except Exception as e:
+            print(f"❌ 特征对齐失败: {e}")
+            return None
+
+# ========== 模型处理器 ==========
+class ModelHandler:
+    def __init__(self):
+        self.gbdt_model = None
+        self.lr_model = None
+        self.actual_n_estimators = 0
+        self.lr_feature_names = []
+        
+    def load_models(self, gbdt_path='output/gbdt_model.pkl', lr_path='output/lr_model.pkl'):
+        """加载GBDT和LR模型"""
+        try:
+            self.gbdt_model = joblib.load(gbdt_path)
+            self.lr_model = joblib.load(lr_path)
+            
+            # 获取LR模型使用的特征名称
+            self.lr_feature_names = self.lr_model.feature_names_in_.tolist()
+            print(f"✅ 模型加载成功")
+            print(f"✅ LR模型特征名称已加载: {len(self.lr_feature_names)} 个特征")
+            return True
+        except Exception as e:
+            print(f"❌ 模型加载失败: {e}")
+            return False
+    
+    def get_leaf_features(self, x_train, x_val):
+        """获取叶子节点特征"""
+        try:
+            # 获取GBDT模型实际训练的树数量
+            self.actual_n_estimators = self.gbdt_model.best_iteration_
+            print(f"✅ GBDT实际树数量: {self.actual_n_estimators}")
+            
+            # 获取叶子节点索引
+            print("正在获取叶子节点索引...")
+            gbdt_feats_train = self.gbdt_model.booster_.predict(x_train.values, pred_leaf=True)
+            gbdt_feats_val = self.gbdt_model.booster_.predict(x_val.values, pred_leaf=True)
+            
+            # 对叶子节点做 One-Hot 编码
+            gbdt_feats_name = ['gbdt_leaf_' + str(i) for i in range(self.actual_n_estimators)]
+            df_train_gbdt_feats = pd.DataFrame(gbdt_feats_train, columns=gbdt_feats_name)
+            df_val_gbdt_feats = pd.DataFrame(gbdt_feats_val, columns=gbdt_feats_name)
+            
+            data_gbdt = pd.concat([df_train_gbdt_feats, df_val_gbdt_feats], ignore_index=True)
+            
+            for col in gbdt_feats_name:
+                # 确保列数据是整数类型
+                data_gbdt[col] = data_gbdt[col].astype(int)
+                onehot_feats = pd.get_dummies(data_gbdt[col], prefix=col)
+                data_gbdt.drop([col], axis=1, inplace=True)
+                data_gbdt = pd.concat([data_gbdt, onehot_feats], axis=1)
+            
+            # 确保所有列都是数值类型
+            for col in data_gbdt.columns:
+                if data_gbdt[col].dtype == 'bool':
+                    data_gbdt[col] = data_gbdt[col].astype(int)
+                # 检查是否有字符串类型的列
+                elif data_gbdt[col].dtype == 'object':
+                    print(f"⚠️  发现非数值列: {col}, 类型: {data_gbdt[col].dtype}")
+                    # 尝试转换为数值类型
+                    data_gbdt[col] = pd.to_numeric(data_gbdt[col], errors='coerce').fillna(0)
+            
+            train_len = df_train_gbdt_feats.shape[0]
+            train_lr = data_gbdt.iloc[:train_len, :].reset_index(drop=True)
+            val_lr = data_gbdt.iloc[train_len:, :].reset_index(drop=True)
+            
+            # 划分LR训练/验证集，返回正确的索引
+            x_train_lr, x_val_lr, y_train_lr_indices, y_val_lr_indices = train_test_split(
+                train_lr, range(len(train_lr)), test_size=0.3, random_state=2018
+            )
+            
+            # 转换索引为numpy数组
+            y_train_lr = np.array(y_train_lr_indices)
+            y_val_lr = np.array(y_val_lr_indices)
+            
+            print("✅ 叶子节点特征处理完成")
+            
+            return x_train_lr, x_val_lr, y_train_lr, y_val_lr
+        except Exception as e:
+            print(f"❌ 叶子节点特征处理失败: {e}")
+            return None, None, None, None
+    
+    def align_lr_features(self, data):
+        """确保数据特征与LR模型匹配"""
+        try:
+            # 获取当前特征
+            current_features = set(data.columns)
+            
+            # 检查缺少的特征
+            missing_features = set(self.lr_feature_names) - current_features
+            if missing_features:
+                print(f"⚠️  数据缺少 {len(missing_features)} 个特征")
+                # 为缺少的特征添加默认值0
+                for feature in missing_features:
+                    data[feature] = 0
+            
+            # 移除多余的特征
+            extra_features = current_features - set(self.lr_feature_names)
+            if extra_features:
+                print(f"ℹ️  移除 {len(extra_features)} 个多余的特征")
+                data = data.drop(columns=list(extra_features))
+            
+            # 确保特征顺序与LR模型一致
+            data = data[self.lr_feature_names]
+            return data
+        except Exception as e:
+            print(f"❌ LR特征对齐失败: {e}")
+            return None
+
+# ========== 公平性计算器 ==========
+class FairnessCalculator:
+    def __init__(self):
+        self.sensitive_attr = None
+        
+    def load_sensitive_config(self, config_path='config/sensitive_attr.csv'):
+        """从配置文件加载敏感属性配置"""
+        try:
+            # 读取敏感属性配置文件
+            config_df = pd.read_csv(config_path)
+            if len(config_df) > 0:
+                config = config_df.iloc[0]  # 取第一行配置
+                return config['file_name'], config['sheet_name'], config['column_name']
+            else:
+                print("❌ 敏感属性配置文件为空")
+                return None, None, None
+        except Exception as e:
+            print(f"❌ 敏感属性配置加载失败: {e}")
+            return None, None, None
+    
+    def load_sensitive_attribute(self, file_name, column_name, sheet_name=None):
+        """从指定文件加载敏感属性"""
+        try:
+            # 读取敏感属性文件
+            if sheet_name and pd.notna(sheet_name):
+                sensitive_data = pd.read_excel(f'data_train/{file_name}', sheet_name=sheet_name)
+            else:
+                sensitive_data = pd.read_excel(f'data_train/{file_name}')
+            print(f"✅ 敏感属性文件加载成功: {sensitive_data.shape}")
+            
+            # 获取敏感属性列
+            if column_name in sensitive_data.columns:
+                self.sensitive_attr = sensitive_data[column_name]
+                unique_values = self.sensitive_attr.unique()
+                print(f"✅ 敏感属性列 '{column_name}' 已加载，包含 {len(unique_values)} 个唯一值: {unique_values}")
+                
+                # 检查是否有足够的多样性来进行公平性分析
+                if len(unique_values) < 2:
+                    print("⚠️  敏感属性列的唯一值过少，无法进行有效的公平性分析")
+                    return False
+                return True
+            else:
+                print(f"❌ 敏感属性列 '{column_name}' 在文件中未找到")
+                return False
+        except Exception as e:
+            print(f"❌ 敏感属性加载失败: {e}")
+            return False
+    
+    def calculate_fairness(self, y_true, y_pred_prob, sensitive_attr):
+        """计算公平性指标"""
+        try:
+            # 将预测概率转换为二值预测（阈值设为0.5）
+            y_pred_binary = (y_pred_prob >= 0.5).astype(int)
+            
+            # 计算各种公平性指标
+            fairness_metrics = BaseFairnessProcessor.calculate_fairness_metrics(
+                y_true, y_pred_prob, sensitive_attr
+            )
+            
+            if fairness_metrics is not None:
+                # 输出公平性指标结果
+                print("\n📊 模型公平性指标:")
+                for _, row in fairness_metrics.iterrows():
+                    print(f"   {row['Metric']}: {row['Score']:.4f}")
+                
+                # 保存公平性指标到CSV文件
+                fairness_metrics.to_csv('output/fairness_metrics.csv', index=False)
+                print("\n✅ 公平性指标已保存至 output/fairness_metrics.csv")
+                
+                return True
+            else:
+                print("⚠️  公平性指标计算失败")
+                return False
+        except Exception as e:
+            print(f"❌ 公平性指标计算失败: {e}")
+            return False
+
+# ========== 主函数 ==========
 def calculate_fairness_metrics():
     """
     计算模型的公平性指标
@@ -16,338 +466,136 @@ def calculate_fairness_metrics():
     # 创建输出目录
     os.makedirs('output', exist_ok=True)
     
-    # ========== 1. 加载训练好的模型和配置 ==========
+    # ========== 1. 初始化各模块 ==========
+    data_loader = DataLoader()
+    feature_processor = FeatureProcessor()
+    model_handler = ModelHandler()
+    fairness_calculator = FairnessCalculator()
+    
+    # ========== 2. 加载模型和配置 ==========
     try:
-        # 初始化基础模型处理器
-        processor = BaseModelProcessor()
-        
         # 加载特征配置
-        if not processor.load_feature_config():
+        if not feature_processor.load_feature_config():
             print("❌ 特征配置加载失败")
             return
         
         # 加载GBDT模型和LR模型
-        if not processor.load_models():
+        if not model_handler.load_models():
             print("❌ 模型加载失败")
             return
             
-        gbdt_model = processor.gbdt_model
-        lr_model = processor.lr_model
-        category_features = processor.category_features
-        continuous_features = processor.continuous_features
-        train_feature_names = processor.train_feature_names
-        
         print(f"✅ 模型和配置加载成功")
-        print(f"   - 类别特征: {len(category_features)} 个")
-        print(f"   - 连续特征: {len(continuous_features)} 个")
-        print(f"   - 训练特征: {len(train_feature_names)} 个")
         
     except Exception as e:
         print(f"❌ 模型加载失败: {e}")
         return
     
-    # ========== 2. 加载验证数据 ==========
+    # ========== 3. 加载和处理数据 ==========
     try:
         # 加载训练数据
-        data = pd.read_csv('data_train/data.csv')
-        print(f"✅ 训练数据加载成功: {data.shape}")
+        if not data_loader.load_training_data():
+            print("❌ 训练数据加载失败")
+            return
         
-        # 分离特征和标签
-        target = data.pop('Label')
-        train_data = data.copy()
+        # 划分训练/验证集
+        if not data_loader.split_data():
+            print("❌ 数据集划分失败")
+            return
         
-        # 确保训练数据都是数值类型
-        for col in train_data.columns:
-            if train_data[col].dtype == 'bool':
-                train_data[col] = train_data[col].astype(int)
-            elif train_data[col].dtype == 'object':
-                # 尝试转换对象类型的列
-                train_data[col] = pd.to_numeric(train_data[col], errors='coerce').fillna(-1)
+        # 保存原始索引
+        original_x_train_indices = data_loader.x_train['index'].values
+        original_x_val_indices = data_loader.x_val['index'].values
+        original_y_train_indices = data_loader.y_train['index'].values
+        original_y_val_indices = data_loader.y_val['index'].values
         
-        # 保存一份原始数据用于敏感属性分析
-        original_train_data = train_data.copy()
-        
-        # 对类别特征进行One-Hot编码（与训练时保持一致）
-        print("正在进行类别特征One-Hot编码...")
-        encoded_features = []
-        remaining_features = train_data.columns.tolist()
-        
-        # 处理类别特征
-        for col in category_features:
-            if col in train_data.columns:
-                # 对类别特征进行One-Hot编码
-                onehot_df = pd.get_dummies(train_data[col], prefix=col)
-                encoded_features.append(onehot_df)
-                remaining_features.remove(col)
-        
-        # 合并编码后的特征和剩余特征
-        if encoded_features:
-            encoded_data = pd.concat(encoded_features, axis=1)
-            remaining_data = train_data[remaining_features]
-            train_data = pd.concat([remaining_data, encoded_data], axis=1)
-            print(f"✅ One-Hot编码完成: {len(encoded_features)} 个类别特征被编码")
-        else:
-            print("ℹ️  未发现需要编码的类别特征")
+        # 对类别特征进行One-Hot编码
+        encoded_data = feature_processor.encode_categorical_features(data_loader.train_data)
+        if encoded_data is None:
+            print("❌ 类别特征编码失败")
+            return
         
         # 确保特征顺序与训练时一致
-        # 获取训练时的特征名称
-        train_feature_set = set(train_feature_names)
-        current_feature_set = set(train_data.columns)
+        aligned_data = feature_processor.align_features(encoded_data)
+        if aligned_data is None:
+            print("❌ 特征对齐失败")
+            return
         
-        # 检查缺失的特征
-        missing_features = train_feature_set - current_feature_set
-        if missing_features:
-            print(f"⚠️  发现 {len(missing_features)} 个缺失特征，将用0填充")
-            for feature in missing_features:
-                train_data[feature] = 0
-        
-        # 移除多余的特征
-        extra_features = current_feature_set - train_feature_set
-        if extra_features:
-            print(f"⚠️  移除 {len(extra_features)} 个多余特征")
-            train_data = train_data.drop(columns=list(extra_features))
-        
-        # 按训练时的特征顺序重新排列
-        train_data = train_data[train_feature_names]
-        print(f"✅ 特征对齐完成: {train_data.shape[1]} 个特征")
-        
-        # 划分训练/验证集（使用与训练时相同的随机种子）
-        x_train, x_val, y_train, y_val = train_test_split(
-            train_data, target, test_size=0.2, random_state=2020, stratify=target
-        )
-        print(f"✅ 数据集划分完成: 训练集 {x_train.shape}, 验证集 {x_val.shape}")
-        
-        # 同时对原始数据进行相同的划分，用于敏感属性分析
-        _, original_x_val, _, _ = train_test_split(
-            original_train_data, target, test_size=0.2, random_state=2020, stratify=target
-        )
+        # 更新数据加载器中的数据，使用原始索引
+        data_loader.x_train = aligned_data.iloc[original_x_train_indices].reset_index(drop=True)
+        data_loader.x_val = aligned_data.iloc[original_x_val_indices].reset_index(drop=True)
+        data_loader.y_train = data_loader.target.iloc[original_y_train_indices].reset_index(drop=True)
+        data_loader.y_val = data_loader.target.iloc[original_y_val_indices].reset_index(drop=True)
         
     except Exception as e:
-        print(f"❌ 数据加载失败: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ 数据处理失败: {e}")
         return
     
-    # ========== 3. 获取叶子节点特征 ==========
+    # ========== 4. 获取叶子节点特征 ==========
     try:
-        # 获取GBDT模型实际训练的树数量
-        actual_n_estimators = gbdt_model.best_iteration_
-        print(f"✅ GBDT实际树数量: {actual_n_estimators}")
-        
-        # 获取叶子节点索引
-        print("正在获取叶子节点索引...")
-        gbdt_feats_train = gbdt_model.booster_.predict(x_train.values, pred_leaf=True)
-        gbdt_feats_val = gbdt_model.booster_.predict(x_val.values, pred_leaf=True)
-        
-        # 对叶子节点做 One-Hot 编码
-        gbdt_feats_name = ['gbdt_leaf_' + str(i) for i in range(actual_n_estimators)]
-        df_train_gbdt_feats = pd.DataFrame(gbdt_feats_train, columns=gbdt_feats_name)
-        df_val_gbdt_feats = pd.DataFrame(gbdt_feats_val, columns=gbdt_feats_name)
-        
-        data_gbdt = pd.concat([df_train_gbdt_feats, df_val_gbdt_feats], ignore_index=True)
-        
-        # 保存一份用于敏感属性分析的原始叶子节点数据
-        original_gbdt_data = data_gbdt.copy()
-        
-        for col in gbdt_feats_name:
-            # 确保列数据是整数类型
-            data_gbdt[col] = data_gbdt[col].astype(int)
-            onehot_feats = pd.get_dummies(data_gbdt[col], prefix=col)
-            data_gbdt.drop([col], axis=1, inplace=True)
-            data_gbdt = pd.concat([data_gbdt, onehot_feats], axis=1)
-        
-        # 确保所有列都是数值类型
-        for col in data_gbdt.columns:
-            if data_gbdt[col].dtype == 'bool':
-                data_gbdt[col] = data_gbdt[col].astype(int)
-            # 检查是否有字符串类型的列
-            elif data_gbdt[col].dtype == 'object':
-                print(f"⚠️  发现非数值列: {col}, 类型: {data_gbdt[col].dtype}")
-                # 尝试转换为数值类型
-                data_gbdt[col] = pd.to_numeric(data_gbdt[col], errors='coerce').fillna(0)
-        
-        train_len = df_train_gbdt_feats.shape[0]
-        train_lr = data_gbdt.iloc[:train_len, :].reset_index(drop=True)
-        val_lr = data_gbdt.iloc[train_len:, :].reset_index(drop=True)
-        
-        # 划分LR训练/验证集（使用与训练时相同的随机种子）
-        x_train_lr, x_val_lr, y_train_lr, y_val_lr = train_test_split(
-            train_lr, y_train, test_size=0.3, random_state=2018, stratify=y_train
+        x_train_lr, x_val_lr, y_train_lr, y_val_lr = model_handler.get_leaf_features(
+            data_loader.x_train, data_loader.x_val
         )
-        print("✅ 叶子节点特征处理完成")
+        if x_train_lr is None:
+            print("❌ 叶子节点特征处理失败")
+            return
         
-        # 同时对原始叶子节点数据进行相同的划分，用于敏感属性分析
-        original_val_gbdt = original_gbdt_data.iloc[train_len:, :].reset_index(drop=True)
-        # 注意：这里应该使用y_val而不是y_train，因为original_val_gbdt对应的是验证集数据
-        # 确保使用与x_val_lr相同的划分
-        _, original_x_val_lr, _, y_val_lr_for_sensitive = train_test_split(
-            original_val_gbdt, y_val, test_size=0.3, random_state=2018, stratify=y_val
-        )
+        # 确保叶子节点特征与LR模型匹配
+        x_val_lr_aligned = model_handler.align_lr_features(x_val_lr)
+        if x_val_lr_aligned is None:
+            print("❌ LR特征对齐失败")
+            return
         
     except Exception as e:
         print(f"❌ 叶子节点特征处理失败: {e}")
-        import traceback
-        traceback.print_exc()
         return
     
-    # ========== 4. 计算公平性指标 ==========
+    # ========== 5. 加载敏感属性 ==========
+    # 从配置文件读取敏感属性配置
+    sensitive_file, sheet_name, sensitive_column = fairness_calculator.load_sensitive_config()
+    
+    if not sensitive_file or not sensitive_column:
+        print("❌ 无法从配置文件加载敏感属性配置")
+        return
+    
+    print(f"ℹ️  使用配置文件中的敏感属性: 文件='{sensitive_file}', 表='{sheet_name}', 列='{sensitive_column}'")
+    
+    if not fairness_calculator.load_sensitive_attribute(sensitive_file, sensitive_column, sheet_name):
+        print("❌ 敏感属性加载失败")
+        return
+    
+    # ========== 6. 计算公平性指标 ==========
     print("\n" + "="*60)
     print("⚖️  正在计算模型公平性指标...")
     print("="*60)
     
-    # 选择一个特征作为敏感属性
-    sensitive_attr = None
-    
-    # 首先尝试使用类别特征作为敏感属性
-    if category_features:
-        # 选择一个具有更多样化值的类别特征作为敏感属性
-        # 优先选择部门相关的特征，因为它们可能具有更多不同的值
-        department_features = [col for col in category_features if '部门' in col]
-        if department_features:
-            sensitive_col = department_features[0]  # 选择第一个部门特征
-        else:
-            sensitive_col = category_features[0]  # 否则选择第一个类别特征
+    try:
+        # 使用LR模型进行预测
+        y_val_pred_prob = model_handler.lr_model.predict_proba(x_val_lr_aligned)[:, 1]
+        print("✅ 预测完成")
         
-        print(f"ℹ️  使用 '{sensitive_col}' 作为敏感属性进行公平性分析")
+        # 计算公平性指标
+        # 修复敏感属性索引匹配问题
+        # 获取原始验证集的标签值
+        original_y_val = data_loader.target.iloc[original_y_val_indices].values
+        # 确保y_val_lr的索引在有效范围内
+        valid_indices_mask = y_val_lr < len(original_y_val)
+        valid_indices = y_val_lr[valid_indices_mask]
+        y_val_for_fairness = original_y_val[valid_indices]
+        y_val_pred_prob_filtered = y_val_pred_prob[valid_indices_mask]
         
-        try:
-            # 从已保存的原始数据中获取敏感属性列的值
-            if sensitive_col in original_x_val.columns:
-                # 获取敏感属性值
-                sensitive_attr = original_x_val[sensitive_col]
-                unique_values = sensitive_attr.unique()
-                print(f"✅ 敏感属性列 '{sensitive_col}' 已加载，包含 {len(unique_values)} 个唯一值: {unique_values}")
-                
-                # 检查是否有足够的多样性来进行公平性分析
-                if len(unique_values) < 2:
-                    print("⚠️  敏感属性列的唯一值过少，无法进行有效的公平性分析")
-                    sensitive_attr = None
-            else:
-                print(f"⚠️  敏感属性列 '{sensitive_col}' 在原始数据中未找到")
-        except Exception as e:
-            print(f"⚠️  加载敏感属性时出错: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    # 如果没有找到合适的类别特征，尝试使用叶子节点特征作为敏感属性
-    if sensitive_attr is None:
-        print("ℹ️  未找到合适的类别特征作为敏感属性，尝试使用叶子节点特征")
-        try:
-            # 使用第一个叶子节点特征作为敏感属性
-            # 注意：这里我们使用与y_val_lr相同的划分
-            if len(original_x_val_lr.columns) > 0:
-                first_leaf_col = original_x_val_lr.columns[0]
-                leaf_values = original_x_val_lr[first_leaf_col]
-                # 将叶子节点值分为两组
-                median_value = np.median(leaf_values)
-                sensitive_attr = pd.Series([1 if val >= median_value else 0 for val in leaf_values])
-                print(f"✅ 使用叶子节点特征 '{first_leaf_col}' 作为敏感属性，包含 {len(sensitive_attr.unique())} 个唯一值: {sensitive_attr.unique()}")
-            else:
-                print("⚠️  没有可用的叶子节点特征")
-        except Exception as e:
-            print(f"⚠️  使用叶子节点特征作为敏感属性时出错: {e}")
-    
-    # 如果仍然没有找到合适的敏感属性，创建一个人工的敏感属性列用于演示
-    if sensitive_attr is None:
-        print("ℹ️  未找到合适的敏感属性，创建人工敏感属性列用于演示")
-        try:
-            # 基于样本索引创建一个二元敏感属性，长度与x_val_lr一致
-            sensitive_attr = pd.Series([i % 2 for i in range(len(x_val_lr))])
-            print(f"✅ 人工敏感属性列已创建，包含 {len(sensitive_attr.unique())} 个唯一值: {sensitive_attr.unique()}")
-        except Exception as e:
-            print(f"⚠️  创建人工敏感属性时出错: {e}")
-    
-    # 检查敏感属性是否有效
-    if sensitive_attr is not None:
-        unique_count = len(sensitive_attr.unique())
-        print(f"ℹ️  敏感属性唯一值数量: {unique_count}")
-        if unique_count < 2:
-            print("⚠️  敏感属性唯一值过少，无法进行有效的公平性分析")
-            sensitive_attr = None
-        else:
-            print(f"✅ 敏感属性有效，包含 {unique_count} 个唯一值")
-    
-    # 检查敏感属性长度是否与y_val_lr匹配
-    if sensitive_attr is not None:
-        print(f"ℹ️  敏感属性长度: {len(sensitive_attr)}, y_val_lr长度: {len(y_val_lr)}")
-        if len(sensitive_attr) != len(y_val_lr):
-            print("⚠️  敏感属性长度与y_val_lr不匹配，尝试调整")
-            # 调整敏感属性长度以匹配y_val_lr
-            if len(sensitive_attr) > len(y_val_lr):
-                sensitive_attr = sensitive_attr.iloc[:len(y_val_lr)]
-                print(f"✅ 调整后敏感属性长度: {len(sensitive_attr)}")
-            else:
-                # 如果敏感属性长度小于y_val_lr，使用人工敏感属性
-                print("⚠️  敏感属性长度小于y_val_lr，使用人工敏感属性")
-                sensitive_attr = pd.Series([i % 2 for i in range(len(y_val_lr))])
-                print(f"✅ 人工敏感属性列已创建，包含 {len(sensitive_attr.unique())} 个唯一值: {sensitive_attr.unique()}")
-    
-    if sensitive_attr is not None:
-        try:
-            # 确保特征名称匹配后再进行预测
-            if set(x_val_lr.columns) == set(lr_model.feature_names_in_):
-                # 重新排列列以匹配LR模型期望的顺序
-                x_val_lr_aligned = x_val_lr[lr_model.feature_names_in_]
-                # 使用LR模型进行预测
-                y_val_pred_prob = lr_model.predict_proba(x_val_lr_aligned)[:, 1]
-                print("✅ 特征名称匹配，可以进行预测")
-            else:
-                print("⚠️  特征名称不匹配，尝试手动对齐")
-                # 尝试手动对齐特征名称
-                try:
-                    # 获取缺失的特征名称
-                    missing_features = set(lr_model.feature_names_in_) - set(x_val_lr.columns)
-                    extra_features = set(x_val_lr.columns) - set(lr_model.feature_names_in_)
-                    
-                    print(f"ℹ️  缺失特征数量: {len(missing_features)}")
-                    print(f"ℹ️  多余特征数量: {len(extra_features)}")
-                    
-                    # 添加缺失的特征（用0填充）
-                    for feature in missing_features:
-                        x_val_lr[feature] = 0
-                    
-                    # 移除多余的特征
-                    x_val_lr = x_val_lr[lr_model.feature_names_in_]
-                    
-                    # 使用LR模型进行预测
-                    y_val_pred_prob = lr_model.predict_proba(x_val_lr)[:, 1]
-                    print("✅ 特征名称手动对齐成功，可以进行预测")
-                except Exception as align_error:
-                    print(f"⚠️  特征名称手动对齐失败: {align_error}")
-                    y_val_pred_prob = None
-                
-            if y_val_pred_prob is not None:
-                # 计算各种公平性指标
-                fairness_metrics = BaseFairnessProcessor.calculate_fairness_metrics(
-                    y_val_lr.values, 
-                    y_val_pred_prob, 
-                    sensitive_attr.values
-                )
-                
-                if fairness_metrics is not None:
-                    # 输出公平性指标结果
-                    print("\n📊 模型公平性指标:")
-                    for _, row in fairness_metrics.iterrows():
-                        print(f"   {row['Metric']}: {row['Score']:.4f}")
-                    
-                    # 保存公平性指标到CSV文件
-                    fairness_metrics.to_csv('output/fairness_metrics.csv', index=False)
-                    print("\n✅ 公平性指标已保存至 output/fairness_metrics.csv")
-                    
-                    # 计算并显示AUC作为参考
-                    val_auc = roc_auc_score(y_val_lr, y_val_pred_prob)
-                    print(f"✅ 验证集 AUC: {val_auc:.4f}")
-                else:
-                    print("⚠️  公平性指标计算失败")
-            else:
-                print("⚠️  无法进行预测，跳过公平性指标计算")
-        except Exception as e:
-            print(f"⚠️  计算公平性指标时出错: {e}")
-            import traceback
-            traceback.print_exc()
-    else:
-        print("⚠️  未找到有效的敏感属性列，无法计算公平性指标")
-        print("ℹ️  为了进行公平性分析，请确保数据中包含合适的敏感属性列（如性别、年龄组等）")
+        # 获取对应的敏感属性值
+        sensitive_attr_values = fairness_calculator.sensitive_attr.values[valid_indices]
+        
+        fairness_calculator.calculate_fairness(
+            y_val_for_fairness, 
+            y_val_pred_prob_filtered, 
+            sensitive_attr_values
+        )
+        
+    except Exception as e:
+        print(f"❌ 公平性指标计算失败: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     calculate_fairness_metrics()
