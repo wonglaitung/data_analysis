@@ -75,7 +75,8 @@ def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', label_column=
 if __name__ == "__main__":
     # 从label_key.csv读取配置
     label_config_file = './config/label_key.csv'
-    label_config = pd.read_csv(label_config_file)
+    try:
+        label_config = pd.read_csv(label_config_file)
         if not label_config.empty:
             # 使用配置文件中的第一个条目作为默认参数
             excel_file_path = f'./label_train/{label_config.iloc[0]["file_name"]}'
