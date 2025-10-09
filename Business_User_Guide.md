@@ -51,7 +51,7 @@
 
 **注意：必须先完成配置文件的设置，才能进行后续的数据转换处理。**
 
-配置文件格式要求详见第8节"配置文件说明"。
+配置文件格式要求详见第7节"配置文件说明"。
 
 #### 步骤2：准备训练数据
 将历史业务数据按以下要求准备：
@@ -59,19 +59,16 @@
 - 文件存放位置：`data_train/`目录
 - 标签文件：包含业务结果的Excel文件，存放在`label_train/`目录
 
-#### 步骤2：执行建模流程
+#### 步骤3：执行建模流程
 在系统终端依次运行以下命令：
 ```bash
 # 1. 数据转换处理
-convert_train_data.exe
 python convert_train_data.py
 
 # 2. 添加业务标签
-add_train_label.exe
 python add_train_label.py
 
 # 3. 训练预测模型
-train_model.exe
 python train_model.py
 ```
 
@@ -91,15 +88,12 @@ python train_model.py
 在系统终端运行以下命令：
 ```bash
 # 1. 预测数据转换
-convert_predict_data.exe
 python convert_predict_data.py
 
 # 2. 执行预测（快速模式）
-predict.exe
 python predict.py
 
 # 或者执行预测并生成详细解释（较慢）
-predict.exe --shap
 python predict.py --shap
 ```
 
@@ -107,7 +101,6 @@ python predict.py --shap
 在系统终端运行以下命令：
 ```bash
 # 执行模型公平性检测
-check_model_fairness.exe
 python check_model_fairness.py
 ```
 
@@ -136,15 +129,16 @@ python check_model_fairness.py
 ### 4.2 特征重要性解读
 系统会输出类似以下的特征重要性信息：
 ```
-📊 GBDT Top 20 重要特征 (含SHAP影响方向):
-                                           Feature  Gain_Importance Impact_Direction
-数据集_同比_带金额_20241231_1__日期_2023_False       817.963905         Positive
-分渠道汇款业务分析_20241231_笔数_渠道_网银       294.209710         Negative
+📊 GBDT Top 20 重要特征 (含影响方向):
+                                           Feature  Gain_Importance  Split_Importance Impact_Direction
+数据集_同比_带金额_20241231_1__日期_2023_False       817.963905        100              Positive
+分渠道汇款业务分析_20241231_笔数_渠道_网银       294.209710         85              Negative
 ```
 
 解读方法：
 - **Feature**：特征名称，表示数据字段
 - **Gain_Importance**：重要性分数，数值越大影响越大
+- **Split_Importance**：分裂次数，表示该特征被用于分裂的次数
 - **Impact_Direction**：影响方向
   - Positive：该特征值增加会提高预测概率
   - Negative：该特征值增加会降低预测概率
@@ -160,10 +154,10 @@ python check_model_fairness.py
 系统会输出类似以下的公平性指标：
 ```
 📊 模型公平性指标:
-   Demographic Parity: 0.8421
-   Equal Opportunity: 0.7936
-   Equalized Odds: 0.7624
-   Predictive Parity: 0.8157
+   Demographic Parity: 0.9996
+   Equal Opportunity: 0.9474
+   Equalized Odds: 0.9737
+   Predictive Parity: 0.0
 ```
 
 解读方法：
@@ -288,7 +282,7 @@ file_name,sheet_name,column_name
 **配置示例：**
 ```
 file_name,sheet_name,column_name
-分渠道汇款业务分析_20241231.xlsx,,客户类型
+分渠道汇款业务分析_20241231.xlsx,,BELONG_BRNO
 ```
 
 **字段说明：**

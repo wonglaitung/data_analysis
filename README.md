@@ -9,6 +9,7 @@
 3. 生成模型可解释性报告（特征重要性、特征贡献分析等）
 4. 对新的数据进行预测并提供解释性结果
 5. 检测模型的公平性，确保对不同群体的客户公平对待
+6. 使用深度学习模型进行更复杂的特征学习和预测
 
 ## 目录结构
 
@@ -22,8 +23,9 @@
 ├── predict.py              # 使用训练好的模型进行预测的脚本
 ├── check_model_fairness.py # 检测模型公平性的脚本
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
-├── base_data_processor.py  # 基础数据处理器类
-├── base_model_processor.py # 基础模型处理器类
+├── base/                   # 基础类目录
+│   ├── base_data_processor.py  # 基础数据处理器类
+│   └── base_model_processor.py # 基础模型处理器类
 ├── README.md               # 项目说明文档
 ├── Business_User_Guide.md  # 业务用户使用手册
 ├── IFLOW.md                # 项目上下文文档
@@ -98,9 +100,17 @@
 - 保存模型和相关元数据用于API服务
 - 生成ROC曲线图
 - 支持早停机制，自动确定最佳迭代次数
-- 可将(推荐/授信/预警)模型训练日志放入大模型进行分析
+- 可将(推荐/授信/预警)模型训练日志放入大模型进行分析，输出银行业务人员可以理解的解读报告，通过模型分析赋能业务决策
 
-### 4. 预测数据处理与转换 (convert_predict_data.py)
+### 4. 深度学习模型训练 (train_model_dl.py)
+
+- 从`config/features.csv`读取特征定义
+- 对类别特征进行One-Hot编码
+- 使用PyTorch构建深度神经网络模型
+- 训练深度学习模型进行二分类预测
+- 保存训练好的模型和相关元数据
+
+### 5. 预测数据处理与转换 (convert_predict_data.py)
 
 - 读取`data_predict/`目录下的所有Excel文件
 - 使用与训练数据相同的处理逻辑生成宽表
@@ -108,7 +118,7 @@
 - 生成用于预测的全局宽表`ml_wide_table_predict_global.csv`
 - 检查预测数据特征字段与训练时使用的特征字段是否匹配
 
-### 5. 使用模型进行预测 (predict.py)
+### 6. 使用模型进行预测 (predict.py)
 
 - 加载训练好的GBDT和LR模型
 - 加载特征配置文件
@@ -119,7 +129,15 @@
 - 生成预测解释性信息（重要特征、特征贡献值、决策规则等）（仅在使用--shap参数时计算特征贡献值）
 - 保存预测结果到`output/prediction_results.csv`
 
-### 6. 模型公平性检测 (check_model_fairness.py)
+### 7. 使用深度学习模型进行预测 (predict_dl.py)
+
+- 加载训练好的深度学习模型
+- 加载特征配置文件
+- 准备预测数据，确保特征与训练时一致
+- 使用深度学习模型进行预测
+- 保存预测结果到`output/prediction_results_dl.csv`
+
+### 8. 模型公平性检测 (check_model_fairness.py)
 
 - 加载训练好的GBDT和LR模型
 - 从`config/sensitive_attr.csv`读取敏感属性配置
@@ -130,13 +148,13 @@
   - 预测公平性(Predictive Parity)
 - 生成公平性检测报告并保存到`output/fairness_metrics.csv`
 
-### 7. 数据裁剪 (trim_excel.py) （测试时可选用）
+### 9. 数据裁剪 (trim_excel.py) （测试时可选用）
 
 - 读取`data_train/`目录下的Excel文件
 - 保留每个文件的前100条记录
 - 将处理后的数据保存回原文件
 
-### 8. 假数据生成 (fake_train_data.py)（测试时可选用）
+### 10. 假数据生成 (fake_train_data.py)（测试时可选用）
 
 - 读取`output/ml_wide_table_global.csv`文件
 - 在Id后面增加Label字段，前1000个样本标记为1，其余为0
@@ -305,6 +323,7 @@ python check_model_fairness.py
 - 使用LightGBM进行GBDT模型训练
 - 使用scikit-learn进行LR模型训练
 - 使用LightGBM内置功能进行模型可解释性分析
+- 使用PyTorch进行深度学习模型开发
 
 ## 模型分析赋能业务
 

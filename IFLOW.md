@@ -149,6 +149,7 @@ file_name,column_name,feature_type
 - 生成ROC曲线图
 - 支持早停机制，自动确定最佳迭代次数
 - 不再生成预测结果文件（submission_gbdt_lr.csv）
+- 可将(推荐/授信/预警)模型训练日志放入大模型进行分析，输出银行业务人员可以理解的解读报告，通过模型分析赋能业务决策
 
 ### 6. 预测数据处理与转换 (convert_predict_data.py)
 
