@@ -270,6 +270,12 @@ python train_model.py
 ```
 该脚本会从`config/features.csv`读取特征定义，训练GBDT+LR模型，并保存模型文件和相关元数据。
 
+4. **训练深度学习模型**（可选）
+```bash
+python train_model_dl.py
+```
+该脚本会从`config/features.csv`读取特征定义，使用PyTorch构建并训练深度学习模型，并保存模型文件和相关元数据。
+
 ### 预测阶段
 
 1. **运行预测数据转换**
@@ -288,7 +294,13 @@ python predict.py --shap
 ```
 该脚本会加载训练好的模型，对预测数据进行预测，并将结果保存到`output/prediction_results.csv`。默认情况下只进行预测，不计算特征贡献值以提高速度。如果需要模型决策的可解释性分析，可以添加`--shap`参数来计算特征贡献值。
 
-3. **检测模型公平性**
+3. **使用深度学习模型进行预测**（可选）
+```bash
+python predict_dl.py
+```
+该脚本会加载训练好的深度学习模型，对预测数据进行预测，并将结果保存到`output/prediction_results_dl.csv`。
+
+4. **检测模型公平性**
 ```bash
 python check_model_fairness.py
 ```
