@@ -331,14 +331,41 @@ def deep_learning_train(data, category_feature, continuous_feature):
         'Importance': feature_importance
     }).sort_values('Importance', ascending=False)
     
-    # 保存特征重要性
-    feat_imp.to_csv('output/dl_feature_importance.csv', index=False)
-    print("✅ 特征重要性已保存至 output/dl_feature_importance.csv")
-    
-    # 显示前20个重要特征
-    print("\n📊 深度学习模型 Top 20 重要特征:")
-    print("="*60)
-    print(feat_imp.head(20))
+    # ========== 增加：通过梯度符号分析特征影响方向 ==========
+    try:
+        print("\n" + "="*60)
+        print("🧠 正在通过梯度符号分析特征影响方向...")
+        print("="*60)
+        
+        # 计算每个特征的平均梯度值，用于判断影响方向
+        mean_grad_values = x_sample.grad.mean(dim=0).cpu().numpy()
+        
+        # 将平均梯度值添加到特征重要性DataFrame中
+        feat_imp['Mean_Grad_Value'] = mean_grad_values
+        # 根据平均梯度值判断影响方向：正数为正向影响，负数为负向影响
+        feat_imp['Impact_Direction'] = feat_imp['Mean_Grad_Value'].apply(lambda x: 'Positive' if x > 0 else 'Negative')
+        
+        # 保存包含所有信息的特征重要性文件
+        feat_imp.to_csv('output/dl_feature_importance.csv', index=False)
+        print("✅ 特征重要性已保存至 output/dl_feature_importance.csv")
+        
+        # 显示前20个重要特征的完整信息
+        print("\n📊 深度学习模型 Top 20 重要特征 (含影响方向):")
+        print("="*60)
+        print(feat_imp[['Feature', 'Importance', 'Impact_Direction']].head(20))
+        
+    except Exception as e:
+        print(f"⚠️ 特征影响方向分析失败: {e}")
+        # 如果分析失败，仍保留基本的特征重要性信息
+        feat_imp['Impact_Direction'] = 'Unknown'
+        # 保存包含所有信息的特征重要性文件
+        feat_imp.to_csv('output/dl_feature_importance.csv', index=False)
+        print("✅ 特征重要性已保存至 output/dl_feature_importance.csv")
+        
+        # 显示前20个重要特征
+        print("\n📊 深度学习模型 Top 20 重要特征:")
+        print("="*60)
+        print(feat_imp.head(20))
 
     # ========== Step 7: 保存模型信息 ==========
     # 保存模型架构信息
