@@ -9,6 +9,7 @@
 3. 生成模型可解释性报告（特征重要性、特征贡献分析等）
 4. 对新的数据进行预测并提供解释性结果
 5. 检测模型的公平性，确保对不同群体的客户公平对待
+6. 支持深度学习模型训练（新增）
 
 ## 目录结构
 
@@ -19,6 +20,7 @@
 ├── convert_predict_data.py # 预测数据转换脚本，将Excel文件转换为宽表用于预测
 ├── fake_train_data.py      # 生成假的训练和测试数据的脚本
 ├── train_model.py          # GBDT+LR模型训练脚本（仅训练，不进行预测）
+├── train_model_dl.py       # 深度学习模型训练脚本（新增）
 ├── predict.py              # 使用训练好的模型进行预测的脚本
 ├── check_model_fairness.py # 检测模型公平性的脚本
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
@@ -100,6 +102,14 @@ file_name,column_name,feature_type
 
 这种识别机制确保了既能满足业务需求（通过强制指定），又能自动处理大部分常规情况。
 
+## 数据安全机制（新增）
+
+为防止敏感数据泄露，项目增加了数据安全检查机制：
+
+1. **敏感字段检测**：在数据处理过程中自动检测敏感字段（如客户名称、身份证号、手机号、地址等）
+2. **繁简体转换处理**：支持繁简体转换，确保能检测到不同语言形式的敏感字段
+3. **程序自动退出**：一旦检测到敏感字段，程序会立即退出并提示用户
+
 ## 核心功能
 
 ### 1. 数据处理与转换 (convert_train_data.py)
@@ -114,6 +124,7 @@ file_name,column_name,feature_type
 - 从`config/primary_key.csv`读取各文件的主键配置
 - 从`config/category_type.csv`读取需要强制作为类别特征的字段配置
 - 对类别特征进行One-Hot编码并合并到最终宽表中
+- 检测并防止敏感数据泄露
 
 ### 2. 标签添加 (add_train_label.py)
 
@@ -150,8 +161,16 @@ file_name,column_name,feature_type
 - 支持早停机制，自动确定最佳迭代次数
 - 不再生成预测结果文件（submission_gbdt_lr.csv）
 - 可将(推荐/授信/预警)模型训练日志放入大模型进行分析，输出银行业务人员可以理解的解读报告，通过模型分析赋能业务决策
+- 计算并输出KS统计量，用于评估模型性能
+- 使用LightGBM内置功能分析特征影响方向
+- 保存实际训练的树数量用于预测时的一致性检查
 
-### 6. 预测数据处理与转换 (convert_predict_data.py)
+### 6. 深度学习模型训练 (train_model_dl.py)（新增）
+
+- 支持使用深度学习模型进行训练
+- 提供与传统GBDT+LR模型的对比分析
+
+### 7. 预测数据处理与转换 (convert_predict_data.py)
 
 - 读取`data_predict/`目录下的所有Excel文件
 - 使用与训练数据相同的处理逻辑生成宽表
@@ -159,7 +178,7 @@ file_name,column_name,feature_type
 - 生成用于预测的全局宽表`ml_wide_table_predict_global.csv`
 - 检查预测数据特征字段与训练时使用的特征字段是否匹配
 
-### 7. 使用模型进行预测 (predict.py)
+### 8. 使用模型进行预测 (predict.py)
 
 - 加载训练好的GBDT和LR模型
 - 加载特征配置文件
@@ -169,8 +188,9 @@ file_name,column_name,feature_type
 - 使用LR模型进行预测
 - 生成预测解释性信息（重要特征、特征贡献值、决策规则等）（仅在使用--shap参数时计算特征贡献值）
 - 保存预测结果到`output/prediction_results.csv`
+- 支持特征贡献可视化（生成特征贡献图）
 
-### 8. 模型公平性检测 (check_model_fairness.py)
+### 9. 模型公平性检测 (check_model_fairness.py)
 
 - 加载训练好的GBDT和LR模型
 - 从`config/sensitive_attr.csv`读取敏感属性配置
@@ -246,6 +266,8 @@ file_name,sheet_name,column_name
 - **验证集 LogLoss**: 0.0246
 - **训练集 AUC**: 0.9779
 - **验证集 AUC**: 0.9819
+- **训练集 KS**: 未提供
+- **验证集 KS**: 未提供
 
 ### 结果解释
 - LogLoss 非常小，说明模型预测概率非常接近真实标签
@@ -292,6 +314,11 @@ python add_train_label.py
 python train_model.py
 ```
 该脚本会从`config/features.csv`读取特征定义，训练GBDT+LR模型，并保存模型文件和相关元数据。
+
+或者使用深度学习模型训练：
+```bash
+python train_model_dl.py
+```
 
 ### 预测阶段
 
@@ -340,3 +367,4 @@ python check_model_fairness.py
 - 使用LightGBM进行GBDT模型训练
 - 使用scikit-learn进行LR模型训练
 - 使用LightGBM内置功能进行模型可解释性分析
+- 增加了数据安全检查，防止敏感数据泄露
