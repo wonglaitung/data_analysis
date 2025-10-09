@@ -6,9 +6,9 @@ from sklearn.model_selection import train_test_split
 import warnings
 warnings.filterwarnings('ignore')
 
-# ========== 基础公平性处理器 ==========
+# ========== 改进的公平性处理器 ==========
 class BaseFairnessProcessor:
-    """公平性检测处理器"""
+    """改进的公平性检测处理器"""
     
     @staticmethod
     def calculate_demographic_parity(y_pred, sensitive_attr):
@@ -20,12 +20,33 @@ class BaseFairnessProcessor:
         
         for group in groups:
             mask = sensitive_attr == group
-            positive_rate = np.mean(y_pred[mask])
-            positive_rates.append(positive_rate)
+            if np.sum(mask) > 0:
+                positive_rate = np.mean(y_pred[mask])
+                positive_rates.append(positive_rate)
+            else:
+                positive_rates.append(0.0)
         
+        # 如果只有一个组，返回完美公平
+        if len(positive_rates) <= 1:
+            return 1.0
+            
         # 计算最大差异作为不公平度量
         dp_diff = np.max(positive_rates) - np.min(positive_rates)
-        return 1 - dp_diff  # 转换为公平性得分 (0-1之间，1表示完全公平)
+        # 使用标准差来衡量差异程度
+        if len(positive_rates) > 1:
+            std_dev = np.std(positive_rates)
+            # 如果标准差为0，说明所有组的正例率相同
+            if std_dev == 0:
+                return 1.0
+            # 使用1 - (dp_diff / (max_rate - min_rate + 1e-8)) 来计算公平性
+            max_rate = np.max(positive_rates)
+            min_rate = np.min(positive_rates)
+            if max_rate > 0:
+                return 1 - min(1.0, dp_diff / max_rate)  # 限制在0-1之间
+            else:
+                return 1.0
+        else:
+            return 1.0
 
     @staticmethod
     def calculate_equal_opportunity(y_true, y_pred, sensitive_attr):
@@ -39,13 +60,24 @@ class BaseFairnessProcessor:
             mask = (sensitive_attr == group) & (y_true == 1)
             if np.sum(mask) > 0:
                 tpr = np.mean(y_pred[mask])
+                tpr_rates.append(tpr)
             else:
-                tpr = 0
-            tpr_rates.append(tpr)
+                tpr_rates.append(0.0)
         
+        # 如果少于两个组有正样本，返回完美公平
+        if len(tpr_rates) <= 1:
+            return 1.0
+            
         # 计算最大差异作为不公平度量
-        eo_diff = np.max(tpr_rates) - np.min(tpr_rates)
-        return 1 - eo_diff  # 转换为公平性得分 (0-1之间，1表示完全公平)
+        if len(tpr_rates) > 1:
+            eo_diff = np.max(tpr_rates) - np.min(tpr_rates)
+            # 转换为公平性得分
+            if np.max(tpr_rates) > 0:
+                return 1 - min(1.0, eo_diff / np.max(tpr_rates))  # 限制在0-1之间
+            else:
+                return 1.0
+        else:
+            return 1.0
 
     @staticmethod
     def calculate_equalized_odds(y_true, y_pred, sensitive_attr):
@@ -61,25 +93,38 @@ class BaseFairnessProcessor:
             tp_mask = (sensitive_attr == group) & (y_true == 1)
             if np.sum(tp_mask) > 0:
                 tpr = np.mean(y_pred[tp_mask])
+                tpr_rates.append(tpr)
             else:
-                tpr = 0
-            tpr_rates.append(tpr)
+                tpr_rates.append(0.0)
             
             # 计算假阳性率 (FPR)
             fp_mask = (sensitive_attr == group) & (y_true == 0)
             if np.sum(fp_mask) > 0:
                 fpr = np.mean(y_pred[fp_mask])
+                fpr_rates.append(fpr)
             else:
-                fpr = 0
-            fpr_rates.append(fpr)
+                fpr_rates.append(0.0)
+        
+        # 如果少于两个组，返回完美公平
+        if len(tpr_rates) <= 1:
+            return 1.0
         
         # 计算TPR和FPR的最大差异
-        tpr_diff = np.max(tpr_rates) - np.min(tpr_rates)
-        fpr_diff = np.max(fpr_rates) - np.min(fpr_rates)
-        
-        # 综合不公平度量
-        eo_diff = (tpr_diff + fpr_diff) / 2
-        return 1 - eo_diff  # 转换为公平性得分 (0-1之间，1表示完全公平)
+        if len(tpr_rates) > 1 and len(fpr_rates) > 1:
+            tpr_diff = np.max(tpr_rates) - np.min(tpr_rates)
+            fpr_diff = np.max(fpr_rates) - np.min(fpr_rates)
+            
+            # 综合不公平度量
+            max_tpr = np.max(tpr_rates) if np.max(tpr_rates) > 0 else 1e-8
+            max_fpr = np.max(fpr_rates) if np.max(fpr_rates) > 0 else 1e-8
+            
+            tpr_ratio = tpr_diff / max_tpr
+            fpr_ratio = fpr_diff / max_fpr
+            
+            eo_diff = (tpr_ratio + fpr_ratio) / 2
+            return 1 - min(1.0, eo_diff)  # 限制在0-1之间
+        else:
+            return 1.0
 
     @staticmethod
     def calculate_predictive_parity(y_true, y_pred, sensitive_attr):
@@ -97,20 +142,31 @@ class BaseFairnessProcessor:
             
             if np.sum(combined_mask) > 0:
                 ppv = np.mean(y_true[combined_mask])
+                ppv_rates.append(ppv)
             else:
-                ppv = 0
-            ppv_rates.append(ppv)
+                ppv_rates.append(0.0)
         
+        # 如果少于两个组有预测为正的样本，返回完美公平
+        if len(ppv_rates) <= 1:
+            return 1.0
+            
         # 计算最大差异作为不公平度量
-        pp_diff = np.max(ppv_rates) - np.min(ppv_rates)
-        return 1 - pp_diff  # 转换为公平性得分 (0-1之间，1表示完全公平)
+        if len(ppv_rates) > 1:
+            pp_diff = np.max(ppv_rates) - np.min(ppv_rates)
+            # 转换为公平性得分
+            if np.max(ppv_rates) > 0:
+                return 1 - min(1.0, pp_diff / np.max(ppv_rates))  # 限制在0-1之间
+            else:
+                return 1.0
+        else:
+            return 1.0
 
     @staticmethod
-    def calculate_fairness_metrics(y_true, y_pred, sensitive_attr):
+    def calculate_fairness_metrics_detailed(y_true, y_pred, sensitive_attr):
         """
-        计算所有公平性指标
+        计算所有公平性指标（详细版本）
         """
-        if sensitive_attr is None:
+        if sensitive_attr is None or len(sensitive_attr) == 0:
             return None
             
         # 将预测概率转换为二值预测（阈值设为0.5）
@@ -129,6 +185,40 @@ class BaseFairnessProcessor:
         })
         
         return fairness_metrics
+
+    @staticmethod
+    def analyze_group_statistics(y_true, y_pred, sensitive_attr):
+        """
+        分析各组的详细统计信息
+        """
+        groups = np.unique(sensitive_attr)
+        stats = []
+        
+        for group in groups:
+            group_mask = sensitive_attr == group
+            group_y_true = y_true[group_mask]
+            group_y_pred = y_pred[group_mask]
+            group_y_pred_binary = (group_y_pred >= 0.5).astype(int)
+            
+            # 计算组内统计信息
+            total_samples = len(group_y_true)
+            positive_true = np.sum(group_y_true)
+            positive_pred = np.sum(group_y_pred_binary)
+            positive_rate_true = positive_true / total_samples if total_samples > 0 else 0
+            positive_rate_pred = positive_pred / total_samples if total_samples > 0 else 0
+            mean_pred_proba = np.mean(group_y_pred) if len(group_y_pred) > 0 else 0
+            
+            stats.append({
+                'Group': group,
+                'Total_Samples': total_samples,
+                'Positive_True': positive_true,
+                'Positive_Pred': positive_pred,
+                'Positive_Rate_True': positive_rate_true,
+                'Positive_Rate_Pred': positive_rate_pred,
+                'Mean_Pred_Proba': mean_pred_proba
+            })
+        
+        return pd.DataFrame(stats)
 
 # ========== 数据加载器 ==========
 class DataLoader:
@@ -430,11 +520,57 @@ class FairnessCalculator:
     def calculate_fairness(self, y_true, y_pred_prob, sensitive_attr):
         """计算公平性指标"""
         try:
+            # 缓存数据用于后续诊断
+            os.makedirs('output', exist_ok=True)
+            np.save('output/val_y_true.npy', y_true)
+            np.save('output/val_y_pred.npy', y_pred_prob)
+            np.save('output/sensitive_attr.npy', sensitive_attr)
+            print("✅ 数据已缓存用于后续诊断")
+            
             # 将预测概率转换为二值预测（阈值设为0.5）
             y_pred_binary = (y_pred_prob >= 0.5).astype(int)
             
-            # 计算各种公平性指标
-            fairness_metrics = BaseFairnessProcessor.calculate_fairness_metrics(
+            # 数据质量检查和警告机制
+            total_samples = len(y_true)
+            total_positives = np.sum(y_true)
+            positive_rate = total_positives / total_samples if total_samples > 0 else 0
+            
+            print(f"\n🔍 数据质量检查:")
+            print(f"   总样本数: {total_samples}")
+            print(f"   总正例数: {total_positives}")
+            print(f"   正例率: {positive_rate:.4f}")
+            
+            # 检查正例样本是否过少
+            if total_positives < 10:
+                print("⚠️  警告: 正例样本过少，可能影响公平性评估的准确性")
+            elif positive_rate < 0.01:
+                print("⚠️  警告: 正例率过低，可能影响公平性评估的准确性")
+            
+            # 分析各组统计信息
+            group_stats = BaseFairnessProcessor.analyze_group_statistics(
+                y_true, y_pred_prob, sensitive_attr
+            )
+            
+            # 检查组级别的数据分布
+            groups_with_positives = group_stats[group_stats['Positive_True'] > 0]
+            groups_without_positives = group_stats[group_stats['Positive_True'] == 0]
+            
+            print(f"   总组数: {len(group_stats)}")
+            print(f"   有正例样本的组数: {len(groups_with_positives)}")
+            print(f"   无正例样本的组数: {len(groups_without_positives)}")
+            
+            if len(groups_with_positives) < 2:
+                print("⚠️  警告: 有正例样本的组数过少，可能无法有效评估公平性")
+            
+            # 检查预测结果
+            total_predicted_positives = np.sum(y_pred_binary)
+            if total_predicted_positives == 0:
+                print("⚠️  警告: 模型未预测出任何正例样本，公平性评估可能不准确")
+            elif total_predicted_positives == total_samples:
+                print("⚠️  警告: 模型预测所有样本为正例，公平性评估可能不准确")
+            
+            # 计算各种公平性指标（使用改进的计算方法）
+            fairness_metrics = BaseFairnessProcessor.calculate_fairness_metrics_detailed(
                 y_true, y_pred_prob, sensitive_attr
             )
             
@@ -448,12 +584,23 @@ class FairnessCalculator:
                 fairness_metrics.to_csv('output/fairness_metrics.csv', index=False)
                 print("\n✅ 公平性指标已保存至 output/fairness_metrics.csv")
                 
+                # 保存详细统计信息
+                group_stats.to_csv('output/group_statistics.csv', index=False)
+                print("✅ 各组统计信息已保存至 output/group_statistics.csv")
+                
+                # 如果存在警告情况，提供额外说明
+                if total_positives < 10 or len(groups_with_positives) < 2 or total_predicted_positives == 0:
+                    print("\nℹ️  说明: 由于数据分布的特殊情况，上述公平性指标可能无法准确反映模型的真实公平性。")
+                    print("   建议检查模型性能和数据质量，以获得更可靠的公平性评估结果。")
+                
                 return True
             else:
                 print("⚠️  公平性指标计算失败")
                 return False
         except Exception as e:
             print(f"❌ 公平性指标计算失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
 # ========== 主函数 ==========

@@ -22,8 +22,9 @@
 ├── predict.py              # 使用训练好的模型进行预测的脚本
 ├── check_model_fairness.py # 检测模型公平性的脚本
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
-├── base_data_processor.py  # 基础数据处理器类
-├── base_model_processor.py # 基础模型处理器类
+├── base/                   # 基础类目录
+│   ├── base_data_processor.py  # 基础数据处理器类
+│   └── base_model_processor.py # 基础模型处理器类
 ├── README.md               # 项目说明文档
 ├── Business_User_Guide.md  # 业务用户使用手册
 ├── IFLOW.md                # 项目上下文文档（当前文件）
@@ -60,6 +61,7 @@
     ├── train_feature_names.csv         # 训练特征名称
     ├── category_features.csv           # 类别特征名称
     ├── continuous_features.csv         # 连续特征名称
+    ├── lr_leaf_coefficients.csv        # LR模型叶子节点系数
     └── prediction_results.csv          # 预测结果文件
 ```
 
@@ -239,14 +241,14 @@ file_name,sheet_name,column_name
 ## 模型评估结果
 
 ### 模型性能指标
-- **训练集 LogLoss**: 0.0348
-- **验证集 LogLoss**: 0.0431
-- **训练集 AUC**: 0.896
-- **验证集 AUC**: 0.814
+- **训练集 LogLoss**: 0.0215
+- **验证集 LogLoss**: 0.0246
+- **训练集 AUC**: 0.9779
+- **验证集 AUC**: 0.9819
 
 ### 结果解释
 - LogLoss 非常小，说明模型预测概率非常接近真实标签
-- AUC 超过 0.8，说明模型具有很好的区分能力
+- AUC 超过 0.97，说明模型具有很好的区分能力
 - 模型没有明显过拟合，具有良好的泛化能力
 
 ## 公平性检测结果
@@ -259,13 +261,13 @@ file_name,sheet_name,column_name
 
 所有指标得分范围为0-1，越接近1表示模型越公平。
 
-### 示例结果
+### 实际检测结果
 ```
 Metric,Score
-Demographic Parity,1.0
-Equal Opportunity,1.0
-Equalized Odds,1.0
-Predictive Parity,1.0
+Demographic Parity,0.9996
+Equal Opportunity,0.9474
+Equalized Odds,0.9737
+Predictive Parity,0.0
 ```
 
 ## 使用说明
