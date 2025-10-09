@@ -343,7 +343,7 @@ python check_model_fairness.py
 
 项目使用了PyTorch库，安装方式如下：
 ```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 ```
 
 ## 模型分析赋能业务
