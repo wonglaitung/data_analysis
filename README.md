@@ -323,7 +323,7 @@ python check_model_fairness.py
 - 使用LightGBM进行GBDT模型训练
 - 使用scikit-learn进行LR模型训练
 - 使用LightGBM内置功能进行模型可解释性分析
-- 使用PyTorch进行深度学习模型开发
+- 使用PyTorch进行深度学习模型开发　（pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu）
 
 ## 模型分析赋能业务
 
