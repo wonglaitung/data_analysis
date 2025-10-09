@@ -8,6 +8,7 @@
 2. 构建推荐模型识别潜在高价值客户
 3. 提供可解释的推荐结果，帮助理解模型决策依据
 4. 检测模型的公平性，确保对不同群体的客户公平对待
+5. 使用深度学习模型进行更复杂的特征学习和预测
 
 ## 2. 系统主要功能
 
@@ -37,6 +38,11 @@
   - 均衡几率(Equalized Odds)
   - 预测公平性(Predictive Parity)
 - 支持自定义敏感属性字段进行公平性分析
+
+### 2.5 深度学习模型
+- 使用PyTorch构建深度神经网络模型
+- 训练深度学习模型进行更复杂的特征学习和预测
+- 提供深度学习模型的预测结果
 
 ## 3. 使用流程
 
@@ -70,6 +76,9 @@ python add_train_label.py
 
 # 3. 训练预测模型
 python train_model.py
+
+# 4. 训练深度学习模型（可选）
+python train_model_dl.py
 ```
 
 执行完成后，系统会生成：
@@ -77,6 +86,7 @@ python train_model.py
 - 模型评估报告（`roc_curve.png`等）
 - 特征重要性分析（`gbdt_feature_importance.csv`）
 - 可将(推荐/授信/预警)模型训练日志放入大模型进行分析
+- 深度学习模型文件（`dl_model.pth`）
 
 ### 3.2 预测阶段
 
@@ -95,6 +105,9 @@ python predict.py
 
 # 或者执行预测并生成详细解释（较慢）
 python predict.py --shap
+
+# 3. 使用深度学习模型进行预测（可选）
+python predict_dl.py
 ```
 
 #### 步骤3：执行公平性检测
