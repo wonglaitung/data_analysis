@@ -351,15 +351,19 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     # 使用LightGBM内置的特征贡献计算
     print("ℹ️  已使用LightGBM内置功能计算特征贡献")
 
-    # 加载特征配置失败，创建默认处理器
+    # 保存模型和相关配置
     from base.base_model_processor import BaseModelProcessor
     processor = BaseModelProcessor()
+    processor.save_models(model, lr, category_feature, continuous_feature)
     
     print("✅ 模型训练完成！")
     print("📊 所有可解释性报告已生成在 output/ 目录下：")
     print("   - gbdt_feature_importance.csv")
     print("   - lr_leaf_coefficients.csv")
-    print("   - actual_n_estimators.csv") 
+    print("   - actual_n_estimators.csv")
+    print("   - train_feature_names.csv")
+    print("   - category_features.csv")
+    print("   - continuous_features.csv")
 
     return model, lr
 

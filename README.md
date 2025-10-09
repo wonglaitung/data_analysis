@@ -20,6 +20,7 @@
 ├── convert_predict_data.py # 预测数据转换脚本，将Excel文件转换为宽表用于预测
 ├── fake_train_data.py      # 生成假的训练和测试数据的脚本
 ├── train_model.py          # GBDT+LR模型训练脚本（仅训练，不进行预测）
+├── train_model_dl.py       # 深度学习模型训练脚本
 ├── predict.py              # 使用训练好的模型进行预测的脚本
 ├── check_model_fairness.py # 检测模型公平性的脚本
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
@@ -62,6 +63,7 @@
     ├── train_feature_names.csv         # 训练特征名称
     ├── category_features.csv           # 类别特征名称
     ├── continuous_features.csv         # 连续特征名称
+    ├── lr_leaf_coefficients.csv        # LR模型叶子节点系数
     └── prediction_results.csv          # 预测结果文件
 ```
 
@@ -101,14 +103,14 @@
 - 生成ROC曲线图
 - 支持早停机制，自动确定最佳迭代次数
 - 可将(推荐/授信/预警)模型训练日志放入大模型进行分析，输出银行业务人员可以理解的解读报告，通过模型分析赋能业务决策
+- 计算并输出KS统计量，用于评估模型性能
+- 使用LightGBM内置功能分析特征影响方向
+- 保存实际训练的树数量用于预测时的一致性检查
 
 ### 4. 深度学习模型训练 (train_model_dl.py)
 
-- 从`config/features.csv`读取特征定义
-- 对类别特征进行One-Hot编码
-- 使用PyTorch构建深度神经网络模型
-- 训练深度学习模型进行二分类预测
-- 保存训练好的模型和相关元数据
+- 支持使用深度学习模型进行训练
+- 提供与传统GBDT+LR模型的对比分析
 
 ### 5. 预测数据处理与转换 (convert_predict_data.py)
 
@@ -335,7 +337,7 @@ python check_model_fairness.py
 - 使用LightGBM进行GBDT模型训练
 - 使用scikit-learn进行LR模型训练
 - 使用LightGBM内置功能进行模型可解释性分析
-- 使用PyTorch进行深度学习模型开发　（pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu）
+- 增加了数据安全检查，防止敏感数据泄露
 
 ## 模型分析赋能业务
 
