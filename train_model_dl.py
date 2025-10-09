@@ -19,7 +19,7 @@ if platform.system() == 'Windows':
 
 # ========== 深度学习模型定义 ==========
 class DeepLearningModel(nn.Module):
-    def __init__(self, input_dim, hidden_dims=[256, 128, 64], dropout_rate=0.3):
+    def __init__(self, input_dim, hidden_dims=[128, 64], dropout_rate=0.3):
         super(DeepLearningModel, self).__init__()
         
         # 输入层
@@ -128,8 +128,8 @@ def deep_learning_train(data, category_feature, continuous_feature):
     train_dataset = TensorDataset(x_train_tensor, y_train_tensor)
     val_dataset = TensorDataset(x_val_tensor, y_val_tensor)
     
-    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
 
     # ========== Step 2: 初始化深度学习模型 ==========
     input_dim = x_train.shape[1]
@@ -137,16 +137,16 @@ def deep_learning_train(data, category_feature, continuous_feature):
     
     # 定义损失函数和优化器
     criterion = nn.BCELoss()
-    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+    optimizer = optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
 
     # ========== Step 3: 训练模型 ==========
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     
-    num_epochs = 50
+    num_epochs = 100
     best_val_loss = float('inf')
-    early_stopping_patience = 10
+    early_stopping_patience = 15
     patience_counter = 0
     
     train_losses = []
