@@ -339,6 +339,13 @@ python check_model_fairness.py
 - 使用LightGBM内置功能进行模型可解释性分析
 - 增加了数据安全检查，防止敏感数据泄露
 
+## 安装提示
+
+项目使用了PyTorch库，安装方式如下：
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+```
+
 ## 模型分析赋能业务
 
 - 可将(推荐/授信/预警)模型训练日志放入大模型进行分析
