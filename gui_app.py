@@ -244,6 +244,20 @@ class FinanceDataAnalysisGUI:
         self.log_text = scrolledtext.ScrolledText(log_frame, height=10)
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
+    def set_window_icon(self):
+        """设置窗口图标"""
+        try:
+            # 获取当前脚本所在目录
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            # 构建图标文件路径
+            icon_path = os.path.join(current_dir, "images", "ai.ico")
+            # 设置窗口图标
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except Exception as e:
+            # 如果设置图标失败，不中断程序运行
+            print(f"设置窗口图标失败: {e}")
+            
     def browse_train_data_dir(self):
         """浏览训练数据目录"""
         directory = filedialog.askdirectory()
