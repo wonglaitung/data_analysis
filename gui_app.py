@@ -9,7 +9,8 @@ import pandas as pd
 try:
     from convert_train_data import main as convert_train_data_main
     from add_train_label import add_label_to_wide_table
-    from train_model import gbdt_lr_train, preProcess, show_model_interpretation_prompt
+    from train_model import gbdt_lr_train, preProcess
+from base.base_model_processor import BaseModelProcessor
     from convert_predict_data import main as convert_predict_data_main
     from predict import PredictModel
     from check_model_fairness import calculate_fairness_metrics
@@ -309,11 +310,9 @@ class FinanceDataAnalysisGUI:
                 continuous_feature = feature_config[feature_config['feature_type'] == 'continuous']['feature_name'].tolist()
                 category_feature = feature_config[feature_config['feature_type'] == 'category']['feature_name'].tolist()
                 
-                self.log_message("✅ 连续特征: " + str(continuous_feature))
-                self.log_message("✅ 类别特征: " + str(category_feature))
-                
                 # 显示大模型解读提示
-                self.log_message("模型训练日志已生成，可将日志复制到大模型内进行解读")
+                #processor = BaseModelProcessor()
+processor.show_model_interpretation_prompt()
                 
                 self.log_message("开始训练GBDT+LR模型...")
                 gbdt_lr_train(data, category_feature, continuous_feature)
