@@ -12,7 +12,7 @@ try:
     from train_model import gbdt_lr_train, preProcess
     from convert_predict_data import main as convert_predict_data_main
     from predict import PredictModel
-    from check_model_fairness import main as check_model_fairness_main
+    from check_model_fairness import calculate_fairness_metrics
     TKINTER_AVAILABLE = True
 except ImportError as e:
     print(f"Import error: {e}")
@@ -168,8 +168,11 @@ class FinanceDataAnalysisGUI:
         def task():
             try:
                 self.log_message("开始数据转换...")
-                # 这里应该调用实际的数据转换函数
-                # 由于tkinter不可用，我们只显示模拟信息
+                # 调用实际的数据转换函数
+                convert_train_data_main(
+                    coverage_threshold=self.coverage_threshold_var.get(),
+                    max_top_k=self.max_top_k_var.get()
+                )
                 self.log_message("✅ 数据转换完成!")
             except Exception as e:
                 self.log_message(f"❌ 数据转换失败: {str(e)}")
@@ -181,8 +184,12 @@ class FinanceDataAnalysisGUI:
         def task():
             try:
                 self.log_message("开始添加标签...")
-                # 这里应该调用实际的标签添加函数
-                # 由于tkinter不可用，我们只显示模拟信息
+                # 调用实际的标签添加函数
+                add_label_to_wide_table(
+                    excel_file_path=self.label_file_var.get(),
+                    sheet_name=self.sheet_name_var.get(),
+                    label_column=self.label_column_var.get()
+                )
                 self.log_message("✅ 标签添加完成!")
             except Exception as e:
                 self.log_message(f"❌ 标签添加失败: {str(e)}")
@@ -193,9 +200,16 @@ class FinanceDataAnalysisGUI:
         """执行模型训练"""
         def task():
             try:
-                self.log_message("开始模型训练...")
-                # 这里应该调用实际的模型训练函数
-                # 由于tkinter不可用，我们只显示模拟信息
+                self.log_message("开始数据预处理...")
+                data = preProcess()
+                
+                self.log_message("加载特征配置...")
+                feature_config = pd.read_csv('config/features.csv')
+                continuous_feature = feature_config[feature_config['feature_type'] == 'continuous']['feature_name'].tolist()
+                category_feature = feature_config[feature_config['feature_type'] == 'category']['feature_name'].tolist()
+                
+                self.log_message("开始训练GBDT+LR模型...")
+                gbdt_lr_train(data, category_feature, continuous_feature)
                 self.log_message("✅ 模型训练完成!")
             except Exception as e:
                 self.log_message(f"❌ 模型训练失败: {str(e)}")
@@ -207,9 +221,25 @@ class FinanceDataAnalysisGUI:
         def task():
             try:
                 self.log_message("开始数据预测...")
-                # 这里应该调用实际的预测函数
-                # 由于tkinter不可用，我们只显示模拟信息
-                self.log_message("✅ 数据预测完成!")
+                # 调用实际的预测函数
+                convert_predict_data_main()
+                
+                self.log_message("开始预测...")
+                predictor = PredictModel()
+                predict_data_path = "output/ml_wide_table_predict_global.csv"
+                output_path = "output/prediction_results.csv"
+                calculate_shap = self.calculate_shap_var.get()
+                
+                success = predictor.run_prediction(predict_data_path, output_path, calculate_shap)
+                
+                if success:
+                    self.log_message("✅ 数据预测完成!")
+                    if calculate_shap:
+                        self.log_message("✅ 特征贡献值已计算并包含在结果中")
+                    else:
+                        self.log_message("ℹ️  仅进行预测，未计算SHAP值")
+                else:
+                    self.log_message("❌ 数据预测失败!")
             except Exception as e:
                 self.log_message(f"❌ 数据预测失败: {str(e)}")
                 
@@ -219,9 +249,9 @@ class FinanceDataAnalysisGUI:
         """执行公平性检测"""
         def task():
             try:
-                self.log_message("开始公平性检测...")
-                # 这里应该调用实际的公平性检测函数
-                # 由于tkinter不可用，我们只显示模拟信息
+                self.log_message("开始检测模型公平性...")
+                # 调用实际的公平性检测函数
+                calculate_fairness_metrics()
                 self.log_message("✅ 公平性检测完成!")
             except Exception as e:
                 self.log_message(f"❌ 公平性检测失败: {str(e)}")
