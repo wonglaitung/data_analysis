@@ -25,6 +25,9 @@ class FinanceDataAnalysisGUI:
         self.root.title("金融数据处理与机器学习工具")
         self.root.geometry("800x600")
         
+        # 设置窗口图标
+        self.set_window_icon()
+        
         # 显示当前工作目录
         current_dir_frame = ttk.Frame(root)
         current_dir_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=10, pady=5)
