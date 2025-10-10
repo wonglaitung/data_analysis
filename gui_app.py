@@ -9,7 +9,7 @@ import pandas as pd
 try:
     from convert_train_data import main as convert_train_data_main
     from add_train_label import add_label_to_wide_table
-    from train_model import gbdt_lr_train, preProcess
+    from train_model import gbdt_lr_train, preProcess, show_model_interpretation_prompt
     from convert_predict_data import main as convert_predict_data_main
     from predict import PredictModel
     from check_model_fairness import calculate_fairness_metrics
@@ -24,9 +24,14 @@ class FinanceDataAnalysisGUI:
         self.root.title("金融数据处理与机器学习工具")
         self.root.geometry("800x600")
         
+        # 显示当前工作目录
+        current_dir_frame = ttk.Frame(root)
+        current_dir_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=10, pady=5)
+        ttk.Label(current_dir_frame, text=f"当前工作目录: {os.getcwd()}").grid(row=0, column=0, sticky=tk.W)
+        
         # 创建主框架
         self.main_frame = ttk.Frame(root, padding="10")
-        self.main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.main_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # 创建标签页
         self.notebook = ttk.Notebook(self.main_frame)
@@ -42,20 +47,22 @@ class FinanceDataAnalysisGUI:
         self.create_data_conversion_tab()
         self.create_label_addition_tab()
         self.create_model_training_tab()
+        self.create_predict_data_conversion_tab()
         self.create_prediction_tab()
         self.create_fairness_check_tab()
+        self.create_notes_tab()
         
         # 创建日志输出区域
         self.create_log_area()
         
     def create_data_conversion_tab(self):
-        """创建数据转换标签页"""
+        """创建训练数据转换标签页"""
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="数据转换")
+        self.notebook.add(tab, text="训练数据转换")
         
         # 文件选择
         ttk.Label(tab, text="训练数据目录:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.train_data_dir_var = tk.StringVar(value="data_train")
+        self.train_data_dir_var = tk.StringVar(value=os.path.join(os.getcwd(), "data_train"))
         ttk.Entry(tab, textvariable=self.train_data_dir_var, width=50).grid(row=0, column=1, pady=5)
         ttk.Button(tab, text="浏览", command=self.browse_train_data_dir).grid(row=0, column=2, padx=5, pady=5)
         
@@ -68,8 +75,12 @@ class FinanceDataAnalysisGUI:
         self.max_top_k_var = tk.IntVar(value=50)
         ttk.Entry(tab, textvariable=self.max_top_k_var, width=20).grid(row=2, column=1, sticky=tk.W, pady=5)
         
+        # 提示信息
+        ttk.Label(tab, text="注意：执行数据转换前，请确保已完成配置文件的设置", foreground="red").grid(row=3, column=0, columnspan=3, pady=5)
+        ttk.Label(tab, text="配置文件包括：primary_key.csv、category_type.csv、label_key.csv、sensitive_attr.csv", foreground="red").grid(row=4, column=0, columnspan=3, pady=5)
+        
         # 执行按钮
-        ttk.Button(tab, text="执行数据转换", command=self.run_data_conversion).grid(row=3, column=0, columnspan=3, pady=20)
+        ttk.Button(tab, text="执行训练数据转换", command=self.run_data_conversion).grid(row=5, column=0, columnspan=3, pady=20)
         
     def create_label_addition_tab(self):
         """创建标签添加标签页"""
@@ -78,7 +89,7 @@ class FinanceDataAnalysisGUI:
         
         # 文件选择
         ttk.Label(tab, text="标签Excel文件:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.label_file_var = tk.StringVar()
+        self.label_file_var = tk.StringVar(value=os.path.join(os.getcwd(), "label_train"))
         ttk.Entry(tab, textvariable=self.label_file_var, width=50).grid(row=0, column=1, pady=5)
         ttk.Button(tab, text="浏览", command=self.browse_label_file).grid(row=0, column=2, padx=5, pady=5)
         
@@ -104,20 +115,37 @@ class FinanceDataAnalysisGUI:
     def create_prediction_tab(self):
         """创建预测标签页"""
         tab = ttk.Frame(self.notebook)
-        self.notebook.add(tab, text="数据预测")
-        
-        # 文件选择
-        ttk.Label(tab, text="预测数据目录:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.predict_data_dir_var = tk.StringVar(value="data_predict")
-        ttk.Entry(tab, textvariable=self.predict_data_dir_var, width=50).grid(row=0, column=1, pady=5)
-        ttk.Button(tab, text="浏览", command=self.browse_predict_data_dir).grid(row=0, column=2, padx=5, pady=5)
+        self.notebook.add(tab, text="模型预测")
         
         # SHAP选项
         self.calculate_shap_var = tk.BooleanVar()
-        ttk.Checkbutton(tab, text="计算SHAP值（较慢但提供可解释性分析）", variable=self.calculate_shap_var).grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=5)
+        ttk.Checkbutton(tab, text="计算SHAP值（较慢但提供可解释性分析）", variable=self.calculate_shap_var).grid(row=0, column=0, columnspan=3, sticky=tk.W, pady=5)
         
         # 执行按钮
-        ttk.Button(tab, text="执行预测", command=self.run_prediction).grid(row=2, column=0, columnspan=3, pady=20)
+        ttk.Button(tab, text="执行预测", command=self.run_prediction).grid(row=1, column=0, columnspan=3, pady=20)
+        
+    def create_predict_data_conversion_tab(self):
+        """创建预测数据转换标签页"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="预测数据转换")
+        
+        # 文件选择
+        ttk.Label(tab, text="预测数据目录:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.predict_data_dir_var = tk.StringVar(value=os.path.join(os.getcwd(), "data_predict"))
+        ttk.Entry(tab, textvariable=self.predict_data_dir_var, width=50).grid(row=0, column=1, pady=5)
+        ttk.Button(tab, text="浏览", command=self.browse_predict_data_dir).grid(row=0, column=2, padx=5, pady=5)
+        
+        # 参数设置
+        ttk.Label(tab, text="覆盖率阈值:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.predict_coverage_threshold_var = tk.DoubleVar(value=0.95)
+        ttk.Entry(tab, textvariable=self.predict_coverage_threshold_var, width=20).grid(row=1, column=1, sticky=tk.W, pady=5)
+        
+        ttk.Label(tab, text="最大TopK:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.predict_max_top_k_var = tk.IntVar(value=50)
+        ttk.Entry(tab, textvariable=self.predict_max_top_k_var, width=20).grid(row=2, column=1, sticky=tk.W, pady=5)
+        
+        # 执行按钮
+        ttk.Button(tab, text="执行预测数据转换", command=self.run_predict_data_conversion).grid(row=3, column=0, columnspan=3, pady=20)
         
     def create_fairness_check_tab(self):
         """创建公平性检测标签页"""
@@ -126,6 +154,79 @@ class FinanceDataAnalysisGUI:
         
         # 执行按钮
         ttk.Button(tab, text="检测模型公平性", command=self.run_fairness_check).grid(row=0, column=0, columnspan=2, pady=20)
+        
+    def create_notes_tab(self):
+        """创建注意事项标签页"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="注意事项")
+        
+        # 创建一个文本框来显示注意事项
+        notes_frame = ttk.LabelFrame(tab, text="重要提示", padding="10")
+        notes_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=10, pady=10)
+        notes_frame.columnconfigure(0, weight=1)
+        notes_frame.rowconfigure(0, weight=1)
+        
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(0, weight=1)
+        
+        # 注意事项内容
+        notes_text = """
+数据准备要求：
+- 确保Excel文件格式正确，无损坏
+- 文件名和列名应使用英文或数字，避免特殊字符
+- 数值型数据应为纯数字格式，避免包含文本或符号
+
+模型维护建议：
+- 建议每季度使用最新数据重新训练模型
+- 当业务环境发生重大变化时，应及时更新模型
+
+推荐使用建议：
+- 推荐结果仅供参考，应结合业务经验进行综合判断
+- 对于高价值客户，建议优先跟进和营销
+
+公平性检测建议：
+- 定期执行公平性检测，确保模型不会对特定群体产生歧视
+- 当公平性指标得分较低时，应分析原因并考虑重新训练模型
+- 可根据不同敏感属性分别进行公平性检测
+
+配置文件说明：
+1. primary_key.csv：定义各Excel数据文件的主键字段
+   - 文件名必须与data_train/目录下的文件名完全一致
+   - 主键字段用于唯一标识每条记录
+
+2. category_type.csv：指定需要强制作为类别特征处理的字段
+   - 解决数值型字段但业务上应为类别型的问题
+
+3. label_key.csv：定义标签文件的信息
+   - 文件名必须与label_train/目录下的文件名完全一致
+   - 标签列名包含目标变量
+
+4. sensitive_attr.csv：定义用于公平性检测的敏感属性字段
+   - 用于从指定文件中提取敏感属性进行公平性分析
+
+参数设置说明：
+- 覆盖率阈值：用于控制类别特征的覆盖率，如0.95表示保留覆盖95%数据的类别值
+- 最大TopK：限制类别特征的最大取值数量，防止特征维度爆炸
+- 当两个参数冲突时，系统优先遵循最大TopK限制
+
+常见问题：
+- 推荐结果不准确：请检查输入数据质量，确保数据完整且格式正确
+- 如何解释高价值推荐：使用SHAP值计算功能获取详细解释报告
+- 公平性检测得分较低：检查敏感属性选择、分析数据分布偏差、考虑重新训练模型
+        """.strip()
+        
+        # 创建文本框显示注意事项
+        text_widget = tk.Text(notes_frame, wrap=tk.WORD, height=20)
+        text_widget.insert(tk.END, notes_text)
+        text_widget.configure(state='disabled')  # 设置为只读
+        
+        # 添加滚动条
+        scrollbar = ttk.Scrollbar(notes_frame, orient=tk.VERTICAL, command=text_widget.yview)
+        text_widget.configure(yscrollcommand=scrollbar.set)
+        
+        # 布局
+        text_widget.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         
     def create_log_area(self):
         """创建日志输出区域"""
@@ -208,6 +309,12 @@ class FinanceDataAnalysisGUI:
                 continuous_feature = feature_config[feature_config['feature_type'] == 'continuous']['feature_name'].tolist()
                 category_feature = feature_config[feature_config['feature_type'] == 'category']['feature_name'].tolist()
                 
+                self.log_message("✅ 连续特征: " + str(continuous_feature))
+                self.log_message("✅ 类别特征: " + str(category_feature))
+                
+                # 显示大模型解读提示
+                self.log_message("模型训练日志已生成，可将日志复制到大模型内进行解读")
+                
                 self.log_message("开始训练GBDT+LR模型...")
                 gbdt_lr_train(data, category_feature, continuous_feature)
                 self.log_message("✅ 模型训练完成!")
@@ -220,10 +327,6 @@ class FinanceDataAnalysisGUI:
         """执行预测"""
         def task():
             try:
-                self.log_message("开始数据预测...")
-                # 调用实际的预测函数
-                convert_predict_data_main()
-                
                 self.log_message("开始预测...")
                 predictor = PredictModel()
                 predict_data_path = "output/ml_wide_table_predict_global.csv"
@@ -242,6 +345,22 @@ class FinanceDataAnalysisGUI:
                     self.log_message("❌ 数据预测失败!")
             except Exception as e:
                 self.log_message(f"❌ 数据预测失败: {str(e)}")
+                
+        threading.Thread(target=task, daemon=True).start()
+        
+    def run_predict_data_conversion(self):
+        """执行预测数据转换"""
+        def task():
+            try:
+                self.log_message("开始预测数据转换...")
+                # 调用实际的预测数据转换函数
+                convert_predict_data_main(
+                    coverage_threshold=0.95,
+                    max_top_k=50
+                )
+                self.log_message("✅ 预测数据转换完成!")
+            except Exception as e:
+                self.log_message(f"❌ 预测数据转换失败: {str(e)}")
                 
         threading.Thread(target=task, daemon=True).start()
         
