@@ -81,6 +81,7 @@
 - 从`config/primary_key.csv`读取各文件的主键配置
 - 从`config/category_type.csv`读取需要强制作为类别特征的字段配置
 - 对类别特征进行One-Hot编码并合并到最终宽表中
+- 在合并宽表时显示基于主键(Id)的匹配率，便于监控数据质量
 
 ### 2. 标签添加 (add_train_label.py)
 
@@ -90,6 +91,7 @@
 - 生成带标签的训练数据集`data_train/train.csv`和测试数据集`data_train/test.csv`
 - 处理缺失标签值，将其默认设置为0
 - 从`config/label_key.csv`读取标签文件配置信息
+- 在合并标签数据时显示基于主键(Id)的匹配率，便于监控数据质量
 
 ### 3. 模型训练 (train_model.py)
 
@@ -119,6 +121,7 @@
 - 确保特征与训练数据保持一致
 - 生成用于预测的全局宽表`ml_wide_table_predict_global.csv`
 - 检查预测数据特征字段与训练时使用的特征字段是否匹配
+- 在合并宽表时显示基于主键(Id)的匹配率，便于监控数据质量
 
 ### 6. 使用模型进行预测 (predict.py)
 

@@ -41,10 +41,16 @@ class TrainDataProcessor(BaseDataProcessor):
         all_wide_dfs = list(file_wide_tables.values())
         if len(all_wide_dfs) == 1:
             global_wide = all_wide_dfs[0].copy()
+            print(f"  只有一个文件宽表，匹配率: 100%")
         else:
             global_wide = all_wide_dfs[0].copy()
+            total_ids = len(global_wide)
             for df in all_wide_dfs[1:]:
+                matched_ids = len(pd.merge(global_wide[['Id']], df[['Id']], on='Id', how='inner'))
+                match_rate = matched_ids / total_ids if total_ids > 0 else 0
+                print(f"  与 {df.shape[0]} 行的宽表合并，基于主键(Id)匹配率: {match_rate:.2%}")
                 global_wide = pd.merge(global_wide, df, on='Id', how='outer')
+                total_ids = len(global_wide)
 
         global_wide = self.calculate_derived_features(global_wide)
 
