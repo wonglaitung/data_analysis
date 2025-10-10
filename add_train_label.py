@@ -35,6 +35,10 @@ def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', label_column=
     
     # 合并数据
     print("正在合并数据...")
+    matched_ids = len(pd.merge(df_wide[['Id']], df_label[['Id']], on='Id', how='inner'))
+    total_wide_ids = len(df_wide)
+    match_rate = matched_ids / total_wide_ids if total_wide_ids > 0 else 0
+    print(f"基于主键(Id)匹配率: {match_rate:.2%} ({matched_ids}/{total_wide_ids})")
     df_merged = pd.merge(df_wide, df_label, on='Id', how='left')
     
     # 将缺失的标签值设置为0

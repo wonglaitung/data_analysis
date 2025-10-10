@@ -268,14 +268,28 @@ class BaseDataProcessor:
     def get_topk_by_coverage(self, value_counts, coverage_threshold=0.95, max_top_k=50):
         total = value_counts.sum()
         if total == 0:
-            return []
+            return [], 0.0, "no_data"
         cumulative = value_counts.cumsum() / total
         topk_idx = cumulative[cumulative <= coverage_threshold].index.tolist()
         if len(topk_idx) < len(value_counts):
             topk_idx.append(cumulative.index[len(topk_idx)])
         if len(topk_idx) > max_top_k:
             topk_idx = topk_idx[:max_top_k]
-        return topk_idx
+        
+        # 计算实际覆盖率
+        if topk_idx:
+            actual_coverage = cumulative[topk_idx[-1]]
+        else:
+            actual_coverage = 0.0
+            
+        # 确定丢弃原因
+        discard_reason = "within_threshold"  # 默认在阈值内
+        if len(topk_idx) >= max_top_k and max_top_k < len(value_counts):
+            discard_reason = "exceeds_max_top_k"
+        elif len(topk_idx) < len(value_counts) and cumulative.iloc[-1] > coverage_threshold:
+            discard_reason = "below_coverage_threshold"
+            
+        return topk_idx, actual_coverage, discard_reason
 
     def calculate_derived_features(self, wide_df):
         if wide_df.empty:
@@ -462,11 +476,14 @@ class BaseDataProcessor:
                 for dim_col in dimension_cols:
                     if dim_col in dimension_analysis:
                         value_counts = df[dim_col].value_counts()
-                        topk_values = self.get_topk_by_coverage(value_counts, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
+                        topk_values, actual_coverage, discard_reason = self.get_topk_by_coverage(value_counts, coverage_threshold=coverage_threshold, max_top_k=max_top_k)
                         df[dim_col] = df[dim_col].where(df[dim_col].isin(topk_values), other='other')
                         
                         # 保存类别型特征列，用于后续合并
                         category_features.append(dim_col)
+                        
+                        # 记录匹配率和丢弃原因
+                        print(f"  维度 {dim_col} 匹配率: {actual_coverage:.2%}, 丢弃原因: {discard_reason}")
 
                         for numeric_col in numeric_cols:
                             try:
