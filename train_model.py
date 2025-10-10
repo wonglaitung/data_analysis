@@ -86,17 +86,6 @@ def get_leaf_path_enhanced(booster, tree_index, leaf_index, feature_names, categ
     return None  # 未找到路径
 
 
-# ========== 公共函数：显示大模型解读提示 ==========
-def show_model_interpretation_prompt():
-    """
-    显示提示信息，指导用户如何将模型训练日志复制到大模型进行解读
-    """
-    print("\n✅ ======================================")
-    print("✅ 将下面的内容复制到大模型内进行解读（不包括此三行）")
-    print("✅ ======================================\n")
-    print("对以下(推荐/授信/预警)模型训练日志进行分析，输出银行业务人员可以理解的解读报告，目地是进行(推荐/授信/预警)，通过模型分析赋能业务决策。\n")
-
-
 # ========== 数据预处理 ==========
 def preProcess():
     path = 'data_train/'
@@ -394,7 +383,8 @@ if __name__ == '__main__':
     print("✅ 类别特征:", category_feature)
 
     # 显示大模型解读提示
-    show_model_interpretation_prompt()
+    processor = BaseModelProcessor()
+    processor.show_model_interpretation_prompt()
 
     print("🧠 开始训练 GBDT + LR 模型...")
     model, lr = gbdt_lr_train(data, category_feature, continuous_feature)
