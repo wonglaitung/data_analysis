@@ -15,88 +15,74 @@ warnings.filterwarnings('ignore')
 # ========== 加载模型和元数据 ==========
 MODEL_DIR = 'output'
 
-def load_models():
-    required_files = [
-        'gbdt_model.pkl',
-        'lr_model.pkl',
-        'train_feature_names.csv',
-        'category_features.csv',
-        'continuous_features.csv',
-        'actual_n_estimators.csv'
-    ]
-    model_dir = Path(MODEL_DIR)
-    for f in required_files:
-        if not (model_dir / f).exists():
-            raise FileNotFoundError(f"❌ 找不到必需文件: {model_dir / f}")
+def load_models(model_type="gbdt_lr"):
+    processor = BaseModelProcessor()
+    if not processor.load_models(model_type):
+        raise Exception("❌ 模型加载失败")
+    
+    if model_type == "gbdt_lr":
+        # 从processor中获取加载的模型和特征
+        gbdt_model = processor.gbdt_model
+        lr_model = processor.lr_model
+        train_feature_names = processor.train_feature_names
+        
+        # 加载其他必要的元数据
+        model_dir = Path(MODEL_DIR)
+        category_features = pd.read_csv(model_dir / 'category_features.csv')['feature'].tolist()
+        continuous_features = pd.read_csv(model_dir / 'continuous_features.csv')['feature'].tolist()
+        actual_n_estimators = pd.read_csv(model_dir / 'actual_n_estimators.csv')['n_estimators'].iloc[0]
+        category_prefixes = [col + "_" for col in category_features]
 
-    gbdt_model = joblib.load(model_dir / 'gbdt_model.pkl')
-    lr_model = joblib.load(model_dir / 'lr_model.pkl')
-    train_feature_names = pd.read_csv(model_dir / 'train_feature_names.csv')['feature'].tolist()
-    category_features = pd.read_csv(model_dir / 'category_features.csv')['feature'].tolist()
-    continuous_features = pd.read_csv(model_dir / 'continuous_features.csv')['feature'].tolist()
-    actual_n_estimators = pd.read_csv(model_dir / 'actual_n_estimators.csv')['n_estimators'].iloc[0]
-    category_prefixes = [col + "_" for col in category_features]
+        logging.info(f"✅ GBDT+LR模型加载完成，实际树数量: {actual_n_estimators}")
+        return {
+            'gbdt_model': gbdt_model,
+            'lr_model': lr_model,
+            'train_feature_names': train_feature_names,
+            'category_features': category_features,
+            'continuous_features': continuous_features,
+            'actual_n_estimators': actual_n_estimators,
+            'category_prefixes': category_prefixes
+        }
+    elif model_type == "dl":
+        # 从processor中获取加载的模型信息
+        train_feature_names = processor.train_feature_names
+        dl_model_info = processor.dl_model_info
+        
+        # 加载其他必要的元数据
+        model_dir = Path(MODEL_DIR)
+        category_features = pd.read_csv(model_dir / 'category_features.csv')['feature'].tolist()
+        continuous_features = pd.read_csv(model_dir / 'continuous_features.csv')['feature'].tolist()
+        category_prefixes = [col + "_" for col in category_features]
+        
+        # 加载深度学习模型
+        if not processor.HAS_TORCH:
+            raise Exception("❌ 未安装PyTorch，无法加载深度学习模型")
+            
+        # 初始化模型
+        model = processor.DeepLearningModel(
+            input_dim=dl_model_info['input_dim'], 
+            hidden_dims=[
+                int(x) for x in str(dl_model_info['hidden_dims']).strip('[]').split(',') if x.strip()
+            ] if 'hidden_dims' in dl_model_info else [256, 128, 64],
+            dropout_rate=dl_model_info.get('dropout_rate', 0.3)
+        )
+        
+        # 加载模型权重
+        model.load_state_dict(torch.load(model_dir / 'dl_model_best.pth'))
+        model.eval()
+        
+        logging.info("✅ 深度学习模型加载完成")
+        return {
+            'dl_model': model,
+            'train_feature_names': train_feature_names,
+            'category_features': category_features,
+            'continuous_features': continuous_features,
+            'category_prefixes': category_prefixes,
+            'dl_model_info': dl_model_info
+        }
 
-    logging.info(f"✅ 模型加载完成，实际树数量: {actual_n_estimators}")
-    return {
-        'gbdt_model': gbdt_model,
-        'lr_model': lr_model,
-        'train_feature_names': train_feature_names,
-        'category_features': category_features,
-        'continuous_features': continuous_features,
-        'actual_n_estimators': actual_n_estimators,
-        'category_prefixes': category_prefixes
-    }
 
-
-# ========== 工具函数：解析叶子路径 ==========
-def get_leaf_path_enhanced(booster, tree_index, leaf_index, feature_names, category_prefixes):
-    try:
-        model_dump = booster.dump_model()
-        if tree_index >= len(model_dump['tree_info']):
-            return None
-        tree_info = model_dump['tree_info'][tree_index]['tree_structure']
-    except Exception as e:
-        logging.warning(f"解析树结构失败: {e}")
-        return None
-
-    node_stack = [(tree_info, [])]
-    while node_stack:
-        node, current_path = node_stack.pop()
-        if 'leaf_index' in node and node['leaf_index'] == leaf_index:
-            return current_path
-        if 'split_feature' in node:
-            feat_idx = node['split_feature']
-            feat_name = feature_names[feat_idx] if feat_idx < len(feature_names) else f"Feature_{feat_idx}"
-            threshold = node.get('threshold', 0.0)
-            decision_type = node.get('decision_type', '<=')
-
-            is_category = False
-            original_col = None
-            category_value = None
-            for prefix in category_prefixes:
-                if feat_name.startswith(prefix):
-                    is_category = True
-                    original_col = prefix.rstrip('_')
-                    category_value = feat_name[len(prefix):]
-                    break
-
-            if is_category:
-                right_rule = f"{original_col} == '{category_value}'"
-                left_rule = f"{original_col} != '{category_value}'"
-            else:
-                if decision_type in ('<=', 'no_greater'):
-                    right_rule = f"{feat_name} > {threshold:.4f}"
-                    left_rule = f"{feat_name} <= {threshold:.4f}"
-                else:
-                    right_rule = f"{feat_name} {decision_type} {threshold:.4f}"
-                    left_rule = f"{feat_name} not {decision_type} {threshold:.4f}"
-
-            if 'right_child' in node:
-                node_stack.append((node['right_child'], current_path + [right_rule]))
-            if 'left_child' in node:
-                node_stack.append((node['left_child'], current_path + [left_rule]))
-    return None
+from base.base_model_processor import BaseModelProcessor
 
 
 # ========== 预处理单样本 ==========
@@ -231,9 +217,10 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
 
         # 原始路径规则
         path_rules = []
+        processor = BaseModelProcessor()
         for tree_idx in range(min(3, len(leaf_indices))):
             leaf_idx = leaf_indices[tree_idx]
-            rule = get_leaf_path_enhanced(gbdt_model.booster_, tree_idx, leaf_idx, train_feature_names, category_prefixes)
+            rule = processor.get_leaf_path_enhanced(gbdt_model.booster_, tree_idx, leaf_idx, train_feature_names, category_prefixes)
             if rule:
                 path_rules.extend(rule[:3])
         seen = set()
@@ -246,9 +233,10 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
 
         # 特征关联规则
         feature_rules = []
+        processor = BaseModelProcessor()
         for tree_idx in range(min(10, len(leaf_indices))):
             leaf_idx = leaf_indices[tree_idx]
-            rule = get_leaf_path_enhanced(gbdt_model.booster_, tree_idx, leaf_idx, train_feature_names, category_prefixes)
+            rule = processor.get_leaf_path_enhanced(gbdt_model.booster_, tree_idx, leaf_idx, train_feature_names, category_prefixes)
             if rule:
                 for r in rule:
                     for feat in top_contrib_features:
@@ -313,9 +301,9 @@ def predict_core(sample_df_list, models, return_explanation=True, generate_plot=
 
 class PredictModel(BaseModelProcessor):
         
-    def load_models(self):
+    def load_models(self, model_type="gbdt_lr"):
         """加载训练好的模型"""
-        return super().load_models()
+        return super().load_models(model_type)
     
     def load_feature_config(self):
         """加载特征配置"""
@@ -368,70 +356,106 @@ class PredictModel(BaseModelProcessor):
             print(f"❌ 准备预测数据时出错: {e}")
             return None
     
-    def predict_with_explanation(self, predict_df, calculate_shap=False):
+    def predict_with_explanation(self, predict_df, calculate_shap=False, model_type="gbdt_lr"):
         """进行预测并生成解释性信息"""
         try:
             # 加载模型和元数据
-            models = load_models()
+            models = load_models(model_type)
             
-            # 预处理数据
-            processed_rows = []
-            for _, row in predict_df.iterrows():
-                processed = preprocess_single_sample(
-                    row.to_dict(),
-                    models['continuous_features'],
-                    models['category_features'],
-                    models['train_feature_names']
-                )
-                # 修复可能的重复列名问题
-                processed = processed.loc[:, ~processed.columns.duplicated()]
-                processed_rows.append(processed)
-            
-            # 检查processed_rows中的DataFrame是否有重复列名
-            for i, df in enumerate(processed_rows):
-                if df.columns.duplicated().any():
-                    print(f"第{i}个样本存在重复列名")
-                    duplicated_cols = df.columns[df.columns.duplicated()]
-                    print(f"重复的列名: {duplicated_cols}")
-                    # 移除重复列，保留第一个
-                    processed_rows[i] = df.loc[:, ~df.columns.duplicated()]
-            
-            # 使用predict_core进行预测，返回解释性信息
-            results = predict_core(processed_rows, models, return_explanation=True, generate_plot=False, calculate_shap=calculate_shap)
-            
-            # 构造 CSV 结果（完全复刻 app.py）
-            csv_results = []
-            for r in results:
-                exp = r["explanation"]
-                # 检查exp是否为None
-                if exp is None:
-                    top_features = ""
-                    top_rules = ""
-                else:
-                    top_features = "; ".join([f"{feat['feature']}({feat['shap_value']:+.3f})" for feat in exp["important_features"]]) if exp.get("important_features") else ""
-                    top_rules = "; ".join(exp["top_rules"][:3]) if exp.get("top_rules") else ""
-                csv_results.append({"probability": r["probability"], "top_features": top_features, "top_rules": top_rules})
+            if model_type == "gbdt_lr":
+                # 预处理数据
+                processed_rows = []
+                for _, row in predict_df.iterrows():
+                    processed = preprocess_single_sample(
+                        row.to_dict(),
+                        models['continuous_features'],
+                        models['category_features'],
+                        models['train_feature_names']
+                    )
+                    # 修复可能的重复列名问题
+                    processed = processed.loc[:, ~processed.columns.duplicated()]
+                    processed_rows.append(processed)
+                
+                # 检查processed_rows中的DataFrame是否有重复列名
+                for i, df in enumerate(processed_rows):
+                    if df.columns.duplicated().any():
+                        print(f"第{i}个样本存在重复列名")
+                        duplicated_cols = df.columns[df.columns.duplicated()]
+                        print(f"重复的列名: {duplicated_cols}")
+                        # 移除重复列，保留第一个
+                        processed_rows[i] = df.loc[:, ~df.columns.duplicated()]
+                
+                # 使用predict_core进行预测，返回解释性信息
+                results = predict_core(processed_rows, models, return_explanation=True, generate_plot=False, calculate_shap=calculate_shap)
+                
+                # 构造 CSV 结果（完全复刻 app.py）
+                csv_results = []
+                for r in results:
+                    exp = r["explanation"]
+                    # 检查exp是否为None
+                    if exp is None:
+                        top_features = ""
+                        top_rules = ""
+                    else:
+                        top_features = "; ".join([f"{feat['feature']}({feat['shap_value']:+.3f})" for feat in exp["important_features"]]) if exp.get("important_features") else ""
+                        top_rules = "; ".join(exp["top_rules"][:3]) if exp.get("top_rules") else ""
+                    csv_results.append({"probability": r["probability"], "top_features": top_features, "top_rules": top_rules})
 
-            # 生成结果 DataFrame
-            result_df = pd.DataFrame()
-            result_df['Id'] = predict_df['Id'].values
-            result_df['PredictedProb'] = [r['probability'] for r in csv_results]
-            result_df['top_features'] = [r['top_features'] for r in csv_results]
-            result_df['top_rules'] = [r['top_rules'] for r in csv_results]
-            
-            return result_df
+                # 生成结果 DataFrame
+                result_df = pd.DataFrame()
+                result_df['Id'] = predict_df['Id'].values
+                result_df['PredictedProb'] = [r['probability'] for r in csv_results]
+                result_df['top_features'] = [r['top_features'] for r in csv_results]
+                result_df['top_rules'] = [r['top_rules'] for r in csv_results]
+                
+                return result_df
+            elif model_type == "dl":
+                # 深度学习模型预测
+                if not self.HAS_TORCH:
+                    print("❌ 未安装PyTorch，无法进行深度学习模型预测")
+                    return None
+                    
+                # 确保数据类型为float32
+                feature_columns = [col for col in self.train_feature_names if col in predict_df.columns]
+                predict_features_df = predict_df[feature_columns].copy()
+                
+                for col in predict_features_df.columns:
+                    if predict_features_df[col].dtype == 'object':
+                        predict_features_df[col] = pd.to_numeric(predict_features_df[col], errors='coerce').fillna(0).astype('float32')
+                    else:
+                        predict_features_df[col] = predict_features_df[col].astype('float32')
+                
+                # 转换为PyTorch张量
+                predict_tensor = torch.FloatTensor(predict_features_df.values)
+                
+                # 使用模型进行预测
+                dl_model = models['dl_model']
+                dl_model.eval()
+                
+                with torch.no_grad():
+                    predictions = dl_model(predict_tensor)
+                    probabilities = predictions.cpu().numpy().flatten()
+                
+                # 生成结果 DataFrame
+                result_df = pd.DataFrame()
+                result_df['Id'] = predict_df['Id'].values
+                result_df['PredictedProb'] = probabilities
+                result_df['top_features'] = ""  # 深度学习模型暂不提供特征解释
+                result_df['top_rules'] = ""    # 深度学习模型暂不提供规则解释
+                
+                return result_df
         except Exception as e:
             print(f"❌ 预测时出错: {e}")
             import traceback
             traceback.print_exc()
             return None
     
-    def run_prediction(self, predict_data_path, output_path="output/prediction_results.csv", calculate_shap=False):
+    def run_prediction(self, predict_data_path, output_path="output/prediction_results.csv", calculate_shap=False, model_type="gbdt_lr"):
         """运行完整的预测流程"""
-        print("=== 开始预测流程 ===")
+        print(f"=== 开始{model_type}模型预测流程 ===")
         
         # 加载模型
-        if not self.load_models():
+        if not self.load_models(model_type):
             return False
         
         # 加载特征配置
@@ -444,17 +468,9 @@ class PredictModel(BaseModelProcessor):
             return False
         
         # 进行预测并生成解释性信息
-        result_df = self.predict_with_explanation(predict_df, calculate_shap)
+        result_df = self.predict_with_explanation(predict_df, calculate_shap, model_type)
         if result_df is None:
             return False
-        
-        # 重命名列以匹配local_batch_predict.py的输出格式
-        # 注意：我们保留原始列名，不进行重命名，以确保与输出文件格式一致
-        # result_df = result_df.rename(columns={
-        #     'PredictedProb': 'prediction_probability',
-        #     'top_features': 'top_3_features',
-        #     'top_rules': 'top_3_rules'
-        # })
         
         # 保存结果
         try:
@@ -467,8 +483,13 @@ class PredictModel(BaseModelProcessor):
             return False
 
 def main():
-    # 检查是否有--shap参数
+    # 检查参数
     calculate_shap = "--shap" in sys.argv
+    model_type = "gbdt_lr"  # 默认使用GBDT+LR模型
+    
+    # 检查是否有--dl参数，如果有则使用深度学习模型
+    if "--dl" in sys.argv:
+        model_type = "dl"
     
     # 创建预测模型实例
     predictor = PredictModel()
@@ -477,16 +498,17 @@ def main():
     predict_data_path = "output/ml_wide_table_predict_global.csv"
     output_path = "output/prediction_results.csv"
     
-    success = predictor.run_prediction(predict_data_path, output_path, calculate_shap)
+    success = predictor.run_prediction(predict_data_path, output_path, calculate_shap, model_type)
     
     if success:
-        print("\n✅ 预测完成!")
-        if calculate_shap:
-            print("✅ 特征贡献值已计算并包含在结果中")
-        else:
-            print("ℹ️  仅进行预测，未计算SHAP值（使用--shap参数可启用SHAP计算）")
+        print(f"\n✅ {model_type}模型预测完成!")
+        if model_type == "gbdt_lr":
+            if calculate_shap:
+                print("✅ 特征贡献值已计算并包含在结果中")
+            else:
+                print("ℹ️  仅进行预测，未计算SHAP值（使用--shap参数可启用SHAP计算）")
     else:
-        print("\n❌ 预测失败!")
+        print(f"\n❌ {model_type}模型预测失败!")
 
 if __name__ == "__main__":
     main()
