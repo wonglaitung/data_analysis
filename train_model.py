@@ -17,74 +17,6 @@ if platform.system() == 'Windows':
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']  # Windows 微软雅黑
     plt.rcParams['axes.unicode_minus'] = False  # 正常显示负号
 
-# ========== 工具函数：解析叶子节点路径（增强版） ==========
-def get_leaf_path_enhanced(booster, tree_index, leaf_index, feature_names, category_prefixes):
-    """
-    解析指定叶子节点的决策路径，支持翻译 one-hot 类别特征
-    """
-    try:
-        model_dump = booster.dump_model()
-        if tree_index >= len(model_dump['tree_info']):
-            return None
-        tree_info = model_dump['tree_info'][tree_index]['tree_structure']
-    except Exception as e:
-        print(f"获取树结构失败: {e}")
-        return None
-
-    node_stack = [(tree_info, [])]  # (当前节点, 路径列表)
-
-    while node_stack:
-        node, current_path = node_stack.pop()
-
-        # 如果是目标叶子节点
-        if 'leaf_index' in node and node['leaf_index'] == leaf_index:
-            return current_path
-
-        # 如果是分裂节点
-        if 'split_feature' in node:
-            feat_idx = node['split_feature']
-            if feat_idx >= len(feature_names):
-                feat_name = f"Feature_{feat_idx}"
-            else:
-                feat_name = feature_names[feat_idx]
-
-            threshold = node.get('threshold', 0.0)
-            decision_type = node.get('decision_type', '<=')
-
-            # 检查是否为 one-hot 类别特征
-            is_category = False
-            original_col = None
-            category_value = None
-
-            for prefix in category_prefixes:
-                if feat_name.startswith(prefix):
-                    is_category = True
-                    original_col = prefix.rstrip('_')
-                    category_value = feat_name[len(prefix):]
-                    break
-
-            if is_category:
-                # 类别特征通常用 > 0.5 判断是否激活
-                # 假设右子树是“等于该类别”
-                right_rule = f"{original_col} == '{category_value}'"
-                left_rule = f"{original_col} != '{category_value}'"
-            else:
-                # 连续特征
-                if decision_type == '<=' or decision_type == 'no_greater':
-                    right_rule = f"{feat_name} > {threshold:.4f}"
-                    left_rule = f"{feat_name} <= {threshold:.4f}"
-                else:
-                    right_rule = f"{feat_name} {decision_type} {threshold:.4f}"
-                    left_rule = f"{feat_name} not {decision_type} {threshold:.4f}"
-
-            # 添加左右子树到栈
-            if 'right_child' in node:
-                node_stack.append((node['right_child'], current_path + [right_rule]))
-            if 'left_child' in node:
-                node_stack.append((node['left_child'], current_path + [left_rule]))
-
-    return None  # 未找到路径
-
 
 # ========== 数据预处理 ==========
 def preProcess():
@@ -107,6 +39,8 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     """
     使用 GBDT + LR 训练模型，增强可解释性输出
     """
+    processor = BaseModelProcessor()
+    
     # 创建输出目录
     os.makedirs('output', exist_ok=True)
 
@@ -160,23 +94,11 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     print(f"✅ 实际训练树数量: {actual_n_estimators} (原计划: {n_estimators})")
 
     # ========== Step 2.5: 输出 GBDT 特征重要性（含影响方向） ==========
-    # 获取 Gain 类型的重要性（更准确反映特征影响）
-    gain_importance = model.booster_.feature_importance(importance_type='gain')
-    # 获取 Split 类型的重要性（特征被用于分裂的次数）
-    split_importance = model.booster_.feature_importance(importance_type='split')
-    
-    feat_imp = pd.DataFrame({
-        'Feature': x_train.columns,
-        'Gain_Importance': gain_importance,
-        'Split_Importance': split_importance
-    }).sort_values('Gain_Importance', ascending=False)
+    # 使用基类中的方法分析特征重要性
+    feat_imp = processor.analyze_feature_importance(model.booster_, x_train.columns.tolist())
     
     # ========== 增加：通过LightGBM内置功能分析特征影响方向 ==========
     try:
-        print("\n" + "="*60)
-        print("🧠 正在通过LightGBM内置功能分析特征影响方向...")
-        print("="*60)
-        
         # 获取训练集样本的特征贡献值
         contrib_values = model.booster_.predict(x_train.values, pred_contrib=True)
         
@@ -195,7 +117,7 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
         feat_imp.to_csv('output/gbdt_feature_importance.csv', index=False)
         print("✅ 已保存特征重要性文件至 output/gbdt_feature_importance.csv")
         
-        # 显示前20个重要特征的完整信息
+        # 显示前20个重要特征的完整信息（不重复打印标题）
         print("\n" + "="*60)
         print("📊 GBDT Top 20 重要特征 (含影响方向):")
         print("="*60)
@@ -252,22 +174,8 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     val_logloss = log_loss(y_val_lr, val_pred_prob)
     
     # 计算 KS 统计量
-    def calculate_ks_statistic(y_true, y_pred_prob):
-        from scipy.stats import ks_2samp
-        # 将样本按预测概率排序
-        data = pd.DataFrame({'y_true': y_true, 'y_pred_prob': y_pred_prob})
-        data_sorted = data.sort_values('y_pred_prob', ascending=False)
-        
-        # 计算累积分布
-        cum_positive = (data_sorted['y_true'] == 1).cumsum() / (y_true == 1).sum()
-        cum_negative = (data_sorted['y_true'] == 0).cumsum() / (y_true == 0).sum()
-        
-        # KS统计量是两个累积分布之间的最大差异
-        ks_stat = np.max(np.abs(cum_positive - cum_negative))
-        return ks_stat
-    
-    tr_ks = calculate_ks_statistic(y_train_lr, tr_pred_prob)
-    val_ks = calculate_ks_statistic(y_val_lr, val_pred_prob)
+    tr_ks = processor.calculate_ks_statistic(y_train_lr, tr_pred_prob)
+    val_ks = processor.calculate_ks_statistic(y_val_lr, val_pred_prob)
     
     tr_auc = roc_auc_score(y_train_lr, tr_pred_prob)
     val_auc = roc_auc_score(y_val_lr, val_pred_prob)
@@ -279,20 +187,7 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     print('✅ Val AUC:', val_auc)
 
     # 添加ROC曲线可视化
-    fpr, tpr, _ = roc_curve(y_val_lr, lr.predict_proba(x_val_lr)[:, 1])
-    plt.figure(figsize=(8, 6))
-    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {val_auc:.4f})')
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC)')
-    plt.legend(loc="lower right")
-    plt.tight_layout()
-    plt.savefig("output/roc_curve.png", dpi=150, bbox_inches='tight')
-    plt.close()
-    print("✅ ROC曲线已保存至 output/roc_curve.png")
+    processor.plot_roc_curve(y_val_lr, lr.predict_proba(x_val_lr)[:, 1], "output/roc_curve.png")
 
     # ========== Step 5.5: 输出 LR 系数（哪些叶子规则最重要） ==========
     lr_coef = pd.DataFrame({
@@ -328,7 +223,7 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
                 
                 print(f"\n🔎 解析 {leaf_feat} (LR系数: {coef:.4f})")
                 try:
-                    rule = get_leaf_path_enhanced(
+                    rule = processor.get_leaf_path_enhanced(
                         model.booster_,
                         tree_index=tree_idx,
                         leaf_index=leaf_idx,
@@ -352,8 +247,6 @@ def gbdt_lr_train(data, category_feature, continuous_feature):
     print("ℹ️  已使用LightGBM内置功能计算特征贡献")
 
     # 保存模型和相关配置
-    from base.base_model_processor import BaseModelProcessor
-    processor = BaseModelProcessor()
     processor.save_models(model, lr, category_feature, continuous_feature)
     
     print("✅ 模型训练完成！")
@@ -375,15 +268,18 @@ if __name__ == '__main__':
 
     # ========== 从配置文件读取特征定义 ==========
     print("📂 正在加载特征配置...")
-    feature_config = pd.read_csv('config/features.csv')
-    continuous_feature = feature_config[feature_config['feature_type'] == 'continuous']['feature_name'].tolist()
-    category_feature = feature_config[feature_config['feature_type'] == 'category']['feature_name'].tolist()
+    processor = BaseModelProcessor()
+    if not processor.load_feature_config():
+        print("❌ 加载特征配置失败")
+        exit(1)
+        
+    continuous_feature = processor.continuous_features
+    category_feature = processor.category_features
 
     print("✅ 连续特征:", continuous_feature)
     print("✅ 类别特征:", category_feature)
 
     # 显示大模型解读提示
-    processor = BaseModelProcessor()
     processor.show_model_interpretation_prompt()
 
     print("🧠 开始训练 GBDT + LR 模型...")
