@@ -10,6 +10,7 @@
 4. 对新的数据进行预测并提供解释性结果
 5. 检测模型的公平性，确保对不同群体的客户公平对待
 6. 使用深度学习模型进行更复杂的特征学习和预测
+7. 在数据处理过程中增加数据分析功能，全面了解数据结构和质量
 
 ## 目录结构
 
@@ -26,7 +27,8 @@
 ├── trim_excel.py           # 用于裁剪Excel文件的脚本
 ├── base/                   # 基础类目录
 │   ├── base_data_processor.py  # 基础数据处理器类
-│   └── base_model_processor.py # 基础模型处理器类
+│   ├── base_model_processor.py # 基础模型处理器类
+│   └── data_analyzer.py    # 数据分析器类
 ├── README.md               # 项目说明文档
 ├── Business_User_Guide.md  # 业务用户使用手册
 ├── IFLOW.md                # 项目上下文文档
@@ -46,9 +48,6 @@
 ├── label_train/            # 存放标签文件
 │   └── *.xlsx              # 原始标签Excel文件
 └── output/                 # 存放处理后的输出文件、模型和预测结果
-    ├── feature_dict_*.csv              # 各Excel文件的字段描述字典
-    ├── wide_table_*.csv                # 各Excel文件生成的宽表
-    ├── wide_table_predict_*.csv        # 预测数据各Excel文件生成的宽表
     ├── feature_dictionary_global.csv   # 全局字段描述字典
     ├── feature_dictionary_predict_global.csv # 预测数据全局字段描述字典
     ├── ml_wide_table_global.csv        # 用于机器学习的全局宽表
@@ -75,13 +74,14 @@
 - 自动学习各文件的字段，分析各种维度
 - 根据各种维度对数据进行透视，生成用于机器学习的宽表
 - 自动计算一些衍生特征（如总和、均值、标准差等）
-- 将每个文件的宽表和字段描述分别保存为CSV文件到`output/`目录中
 - 合并所有文件宽表生成全局宽表`ml_wide_table_global.csv`
 - 将过滤后的特征字典保存到`config/features.csv`供模型训练使用
 - 从`config/primary_key.csv`读取各文件的主键配置
 - 从`config/category_type.csv`读取需要强制作为类别特征的字段配置
 - 对类别特征进行One-Hot编码并合并到最终宽表中
 - 在合并宽表时显示基于主键(Id)的匹配率，便于监控数据质量
+- 在数据处理过程中增加数据分析功能，全面了解数据结构和质量
+- 不再保存每个文件的独立宽表，只保留最终大宽表
 
 ### 2. 标签添加 (add_train_label.py)
 
@@ -122,6 +122,8 @@
 - 生成用于预测的全局宽表`ml_wide_table_predict_global.csv`
 - 检查预测数据特征字段与训练时使用的特征字段是否匹配
 - 在合并宽表时显示基于主键(Id)的匹配率，便于监控数据质量
+- 在数据处理过程中增加数据分析功能，全面了解数据结构和质量
+- 不再保存每个文件的独立宽表，只保留最终大宽表
 
 ### 6. 使用模型进行预测 (predict.py)
 
@@ -261,7 +263,7 @@ file_name,column_name,feature_type
 ```bash
 python convert_train_data.py
 ```
-该脚本会处理`data_train/`目录下的所有Excel文件，并在`output/`目录生成各文件的宽表和特征字典，以及全局宽表`ml_wide_table_global.csv`和`feature_dictionary_global.csv`，同时将过滤后的特征字典保存到`config/features.csv`。
+该脚本会处理`data_train/`目录下的所有Excel文件，并在`output/`目录生成全局宽表`ml_wide_table_global.csv`和`feature_dictionary_global.csv`，同时将过滤后的特征字典保存到`config/features.csv`。数据分析结果会显示在屏幕上但不会保存到文件。
 
 2. **添加真实标签**
 ```bash
@@ -287,7 +289,7 @@ python train_model_dl.py
 ```bash
 python convert_predict_data.py
 ```
-该脚本会处理`data_predict/`目录下的所有Excel文件，并生成用于预测的全局宽表`ml_wide_table_predict_global.csv`。
+该脚本会处理`data_predict/`目录下的所有Excel文件，并生成用于预测的全局宽表`ml_wide_table_predict_global.csv`。数据分析结果会显示在屏幕上但不会保存到文件。
 
 2. **使用模型进行预测**
 ```bash
