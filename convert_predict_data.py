@@ -1,14 +1,22 @@
 import pandas as pd
 import os
 from base.base_data_processor import BaseDataProcessor
+from base.data_analyzer import DataAnalyzer
 
 class PredictDataProcessor(BaseDataProcessor):
     def __init__(self):
         super().__init__("data_predict", "output")
+        self.analyzer = DataAnalyzer()
         
     def main(self, coverage_threshold=0.95, max_top_k=50):
         # 获取类别特征映射
         all_data, all_primary_keys, category_feature_mapping = self.process_all_excel_files()
+        
+        # 进行数据分析
+        print("\n=== 开始数据分析 ===")
+        analysis_results = self.analyzer.analyze_dataset(all_data)
+        print("✅ 数据分析完成")
+        
         field_analysis, dimension_analysis = self.analyze_fields_and_dimensions(all_data, category_feature_mapping)
         print(f"\n分析了 {len(field_analysis)} 个字段, {len(dimension_analysis)} 个维度")
 
@@ -25,16 +33,10 @@ class PredictDataProcessor(BaseDataProcessor):
             print("❌ 未生成任何宽表")
             return
 
-        # 保存每个文件的独立宽表
+        # 不再保存每个文件的独立宽表，只保留最终大宽表
+        # 生成每个文件的特征字典但不保存
         for file_name, wide_df in file_wide_tables.items():
-            safe_name = self._normalize_name(file_name.replace('.xlsx', ''))
-            output_csv = os.path.join(self.output_dir, f"wide_table_predict_{safe_name}.csv")
-            wide_df.to_csv(output_csv, index=False, encoding='utf-8')
-            print(f"✅ 保存文件宽表: {output_csv}")
-
             feature_dict_df = self.generate_feature_dictionary(wide_df, category_feature_mapping)
-            dict_csv = os.path.join(self.output_dir, f"feature_dict_predict_{safe_name}.csv")
-            feature_dict_df.to_csv(dict_csv, index=False, encoding='utf-8')
 
         # 合并所有文件宽表（用于预测）
         print("\n=== 合并所有文件宽表（用于预测）===")
