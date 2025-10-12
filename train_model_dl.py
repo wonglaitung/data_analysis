@@ -17,7 +17,15 @@ except ImportError:
     HAS_TORCH = False
     print("警告: 未安装PyTorch，将跳过深度学习模型相关功能")
 
-from base.base_model_processor import BaseModelProcessor
+# 尝试导入BaseModelProcessor，可能依赖PyTorch
+try:
+    from base.base_model_processor import BaseModelProcessor
+except ImportError as e:
+    if not HAS_TORCH:
+        print(f"警告: 未安装PyTorch，BaseModelProcessor导入失败: {e}")
+        BaseModelProcessor = None
+    else:
+        raise
 
 # ========== 数据预处理 ==========
 def preProcess():
@@ -45,6 +53,11 @@ def deep_learning_train(data, category_feature, continuous_feature):
     """
     使用深度学习训练模型，增强可解释性输出
     """
+    # 检查BaseModelProcessor是否可用
+    if BaseModelProcessor is None:
+        print("❌ BaseModelProcessor不可用，无法进行深度学习训练")
+        return
+    
     processor = BaseModelProcessor()
     
     # 创建输出目录
@@ -263,6 +276,11 @@ if __name__ == '__main__':
 
     # ========== 从配置文件读取特征定义 ==========
     print("📂 正在加载特征配置...")
+    # 检查BaseModelProcessor是否可用
+    if BaseModelProcessor is None:
+        print("❌ BaseModelProcessor不可用，无法加载特征配置")
+        exit(1)
+        
     processor = BaseModelProcessor()
     if not processor.load_feature_config():
         print("❌ 加载特征配置失败")
