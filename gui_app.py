@@ -9,12 +9,18 @@ import pandas as pd
 try:
     from convert_train_data import main as convert_train_data_main
     from add_train_label import add_label_to_wide_table
-    from train_model import gbdt_lr_train, preProcess
-    from base.base_model_processor import BaseModelProcessor
     from convert_predict_data import main as convert_predict_data_main
-    from predict import PredictModel
     from check_model_fairness import calculate_fairness_metrics
     TKINTER_AVAILABLE = True
+    
+    # 尝试导入可能依赖PyTorch的模块
+    try:
+        from train_model import gbdt_lr_train, preProcess
+        from base.base_model_processor import BaseModelProcessor
+        from predict import PredictModel
+    except ImportError as e:
+        print(f"Warning: Failed to import PyTorch-dependent modules: {e}")
+        gbdt_lr_train = preProcess = BaseModelProcessor = PredictModel = None
 except ImportError as e:
     print(f"Import error: {e}")
     TKINTER_AVAILABLE = False
@@ -319,6 +325,11 @@ class FinanceDataAnalysisGUI:
         """执行模型训练"""
         def task():
             try:
+                # 检查必要的模块是否可用
+                if preProcess is None or gbdt_lr_train is None or BaseModelProcessor is None:
+                    self.log_message("❌ 模型训练功能不可用: 未安装PyTorch或相关依赖缺失")
+                    return
+                    
                 self.log_message("开始数据预处理...")
                 data = preProcess()
                 
@@ -343,6 +354,11 @@ class FinanceDataAnalysisGUI:
         """执行预测"""
         def task():
             try:
+                # 检查必要的模块是否可用
+                if PredictModel is None:
+                    self.log_message("❌ 预测功能不可用: 未安装PyTorch或相关依赖缺失")
+                    return
+                    
                 self.log_message("开始预测...")
                 predictor = PredictModel()
                 predict_data_path = "output/ml_wide_table_predict_global.csv"

@@ -9,7 +9,7 @@ from sklearn.metrics import roc_auc_score, roc_curve, log_loss
 import matplotlib.pyplot as plt
 import platform
 
-# 深度学习相关导入
+# 深度学习相关导入检查
 HAS_TORCH = False
 try:
     import torch
