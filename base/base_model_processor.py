@@ -10,15 +10,11 @@ import matplotlib.pyplot as plt
 import platform
 
 # 深度学习相关导入
+HAS_TORCH = False
 try:
     import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
-    import torch.optim as optim
-    from torch.utils.data import DataLoader, TensorDataset
     HAS_TORCH = True
 except ImportError:
-    HAS_TORCH = False
     print("警告: 未安装PyTorch，将跳过深度学习模型相关功能")
 
 warnings.filterwarnings('ignore')
