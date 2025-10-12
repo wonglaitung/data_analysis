@@ -28,46 +28,47 @@ if platform.system() == 'Windows':
     plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']  # Windows 微软雅黑
     plt.rcParams['axes.unicode_minus'] = False  # 正常显示负号
 
+# 只在有PyTorch的情况下定义深度学习模型类
+if HAS_TORCH:
+    class DeepLearningModel(nn.Module):
+        def __init__(self, input_dim, hidden_dims=[128, 64], dropout_rate=0.3):
+            super(DeepLearningModel, self).__init__()
+            
+            # 输入层
+            self.input_layer = nn.Linear(input_dim, hidden_dims[0])
+            self.input_bn = nn.BatchNorm1d(hidden_dims[0])
+            
+            # 隐藏层
+            self.hidden_layers = nn.ModuleList()
+            self.hidden_bns = nn.ModuleList()
+            self.hidden_drops = nn.ModuleList()
+            
+            for i in range(len(hidden_dims) - 1):
+                self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i+1]))
+                self.hidden_bns.append(nn.BatchNorm1d(hidden_dims[i+1]))
+                self.hidden_drops.append(nn.Dropout(dropout_rate))
+            
+            # 输出层
+            self.output_layer = nn.Linear(hidden_dims[-1], 1)
+            self.sigmoid = nn.Sigmoid()
+            
+        def forward(self, x):
+            # 输入层
+            x = F.relu(self.input_bn(self.input_layer(x)))
+            x = F.dropout(x, p=0.3, training=self.training)
+            
+            # 隐藏层
+            for layer, bn, drop in zip(self.hidden_layers, self.hidden_bns, self.hidden_drops):
+                x = F.relu(bn(layer(x)))
+                x = drop(x)
+            
+            # 输出层
+            x = self.output_layer(x)
+            x = self.sigmoid(x)
+            
+            return x
+
 class BaseModelProcessor:
-    # 只在有PyTorch的情况下定义深度学习模型类
-    if HAS_TORCH:
-        class DeepLearningModel(nn.Module):
-            def __init__(self, input_dim, hidden_dims=[128, 64], dropout_rate=0.3):
-                super(BaseModelProcessor.DeepLearningModel, self).__init__()
-                
-                # 输入层
-                self.input_layer = nn.Linear(input_dim, hidden_dims[0])
-                self.input_bn = nn.BatchNorm1d(hidden_dims[0])
-                
-                # 隐藏层
-                self.hidden_layers = nn.ModuleList()
-                self.hidden_bns = nn.ModuleList()
-                self.hidden_drops = nn.ModuleList()
-                
-                for i in range(len(hidden_dims) - 1):
-                    self.hidden_layers.append(nn.Linear(hidden_dims[i], hidden_dims[i+1]))
-                    self.hidden_bns.append(nn.BatchNorm1d(hidden_dims[i+1]))
-                    self.hidden_drops.append(nn.Dropout(dropout_rate))
-                
-                # 输出层
-                self.output_layer = nn.Linear(hidden_dims[-1], 1)
-                self.sigmoid = nn.Sigmoid()
-                
-            def forward(self, x):
-                # 输入层
-                x = F.relu(self.input_bn(self.input_layer(x)))
-                x = F.dropout(x, p=0.3, training=self.training)
-                
-                # 隐藏层
-                for layer, bn, drop in zip(self.hidden_layers, self.hidden_bns, self.hidden_drops):
-                    x = F.relu(bn(layer(x)))
-                    x = drop(x)
-                
-                # 输出层
-                x = self.output_layer(x)
-                x = self.sigmoid(x)
-                
-                return x
     def __init__(self, model_dir="output", config_dir="config"):
         self.model_dir = model_dir
         self.config_dir = config_dir
