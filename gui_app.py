@@ -122,8 +122,8 @@ class FinanceDataAnalysisGUI:
 参数说明：
 - 留空：不进行样本平衡处理
 - 0.5：负样本:正样本 = 1:2
-- 1.0：负样本:正样本 = 1:1
-- 2.0：负样本:正样本 = 2:1
+- 1：负样本:正样本 = 1:1
+- 10：负样本:正样本 = 10:1
         """.strip()
         ttk.Label(tab, text=balance_info_text, foreground="blue").grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=5)
         
