@@ -111,8 +111,24 @@ class FinanceDataAnalysisGUI:
         self.label_column_var = tk.StringVar(value="本地支薪")
         ttk.Entry(tab, textvariable=self.label_column_var, width=20).grid(row=2, column=1, sticky=tk.W, pady=5)
         
+        # 样本平衡参数
+        ttk.Label(tab, text="样本平衡比例:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.balance_ratio_var = tk.StringVar(value="")
+        ttk.Entry(tab, textvariable=self.balance_ratio_var, width=20).grid(row=3, column=1, sticky=tk.W, pady=5)
+        ttk.Label(tab, text="（留空表示不进行平衡）").grid(row=3, column=2, sticky=tk.W, pady=5)
+        
+        # 参数说明
+        balance_info_text = """
+参数说明：
+- 留空：不进行样本平衡处理
+- 0.5：正样本:负样本 = 1:2
+- 1.0：正样本:负样本 = 1:1
+- 2.0：正样本:负样本 = 1:0.5（即负样本是正样本的一半）
+        """.strip()
+        ttk.Label(tab, text=balance_info_text, foreground="blue").grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=5)
+        
         # 执行按钮
-        ttk.Button(tab, text="添加标签", command=self.run_label_addition).grid(row=3, column=0, columnspan=3, pady=20)
+        ttk.Button(tab, text="添加标签", command=self.run_label_addition).grid(row=5, column=0, columnspan=3, pady=20)
         
     def create_model_training_tab(self):
         """创建模型训练标签页"""
@@ -309,13 +325,26 @@ class FinanceDataAnalysisGUI:
         def task():
             try:
                 self.log_message("开始添加标签...")
+                # 获取平衡比例参数
+                balance_ratio_str = self.balance_ratio_var.get()
+                balance_ratio = None
+                if balance_ratio_str:
+                    try:
+                        balance_ratio = float(balance_ratio_str)
+                    except ValueError:
+                        self.log_message("⚠️  样本平衡比例参数无效，将不进行样本平衡处理")
+                
                 # 调用实际的标签添加函数
                 add_label_to_wide_table(
                     excel_file_path=self.label_file_var.get(),
                     sheet_name=self.sheet_name_var.get(),
-                    label_column=self.label_column_var.get()
+                    label_column=self.label_column_var.get(),
+                    balance_ratio=balance_ratio
                 )
-                self.log_message("✅ 标签添加完成!")
+                if balance_ratio is not None:
+                    self.log_message(f"✅ 标签添加完成! (已按 {balance_ratio}:1 的比例进行样本平衡)")
+                else:
+                    self.log_message("✅ 标签添加完成! (未进行样本平衡处理)")
             except Exception as e:
                 self.log_message(f"❌ 标签添加失败: {str(e)}")
                 
