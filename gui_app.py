@@ -54,8 +54,8 @@ class FinanceDataAnalysisGUI:
         root.rowconfigure(0, weight=1)
         
         # 创建各个功能标签页
-        self.create_data_conversion_tab()
         self.create_single_file_analysis_tab()
+        self.create_data_conversion_tab()
         self.create_label_addition_tab()
         self.create_model_training_tab()
         self.create_predict_data_conversion_tab()
