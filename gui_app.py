@@ -55,6 +55,7 @@ class FinanceDataAnalysisGUI:
         
         # 创建各个功能标签页
         self.create_data_conversion_tab()
+        self.create_single_file_analysis_tab()
         self.create_label_addition_tab()
         self.create_model_training_tab()
         self.create_predict_data_conversion_tab()
@@ -91,6 +92,29 @@ class FinanceDataAnalysisGUI:
         
         # 执行按钮
         ttk.Button(tab, text="执行训练数据转换", command=self.run_data_conversion).grid(row=5, column=0, columnspan=3, pady=20)
+        
+    def create_single_file_analysis_tab(self):
+        """创建单文件分析标签页"""
+        tab = ttk.Frame(self.notebook)
+        self.notebook.add(tab, text="单文件分析")
+        
+        # 文件选择
+        ttk.Label(tab, text="选择Excel文件:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.single_file_var = tk.StringVar()
+        self.single_file_combo = ttk.Combobox(tab, textvariable=self.single_file_var, width=50, state="readonly")
+        self.single_file_combo.grid(row=0, column=1, pady=5)
+        ttk.Button(tab, text="刷新文件列表", command=self.refresh_file_list).grid(row=0, column=2, padx=5, pady=5)
+        
+        # 初始化文件列表
+        self.refresh_file_list()
+        
+        # 透视表数量设置
+        ttk.Label(tab, text="最大透视表组合数:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.max_combinations_var = tk.IntVar(value=10)
+        ttk.Entry(tab, textvariable=self.max_combinations_var, width=20).grid(row=1, column=1, sticky=tk.W, pady=5)
+        
+        # 执行按钮
+        ttk.Button(tab, text="执行单文件分析", command=self.run_single_file_analysis).grid(row=2, column=0, columnspan=3, pady=20)
         
     def create_label_addition_tab(self):
         """创建标签添加标签页"""
@@ -435,6 +459,51 @@ class FinanceDataAnalysisGUI:
                 self.log_message("✅ 公平性检测完成!")
             except Exception as e:
                 self.log_message(f"❌ 公平性检测失败: {str(e)}")
+                
+        threading.Thread(target=task, daemon=True).start()
+        
+    def refresh_file_list(self):
+        """刷新data_train目录中的文件列表"""
+        try:
+            data_train_dir = "data_train"
+            if os.path.exists(data_train_dir):
+                # 获取所有xlsx文件
+                files = [f for f in os.listdir(data_train_dir) if f.endswith('.xlsx')]
+                self.single_file_combo['values'] = files
+                if files:
+                    self.single_file_combo.set(files[0])  # 默认选择第一个文件
+            else:
+                self.log_message(f"⚠️  目录 {data_train_dir} 不存在")
+        except Exception as e:
+            self.log_message(f"❌ 刷新文件列表失败: {str(e)}")
+            
+    def run_single_file_analysis(self):
+        """执行单文件分析"""
+        def task():
+            try:
+                # 导入分析函数
+                from analyze_single_file import analyze_single_excel_file
+                
+                selected_file = self.single_file_var.get()
+                if not selected_file:
+                    self.log_message("❌ 请选择要分析的文件")
+                    return
+                    
+                file_path = os.path.join("data_train", selected_file)
+                max_combinations = self.max_combinations_var.get()
+                
+                self.log_message(f"开始分析文件: {selected_file}")
+                self.log_message(f"最大透视表组合数: {max_combinations}")
+                
+                # 调用实际的单文件分析函数
+                analyze_single_excel_file(
+                    file_path=file_path,
+                    max_combinations=max_combinations
+                )
+                
+                self.log_message("✅ 单文件分析完成!")
+            except Exception as e:
+                self.log_message(f"❌ 单文件分析失败: {str(e)}")
                 
         threading.Thread(target=task, daemon=True).start()
 
