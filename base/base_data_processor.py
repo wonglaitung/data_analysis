@@ -728,9 +728,9 @@ class BaseDataProcessor(ABC):
         print("\n=== 开始数据分析 ===")
         # 注意：这里需要子类提供analyzer属性
         if hasattr(self, 'analyzer'):
-            # 检查是否是训练数据处理器（convert_train_data.py）
+            # 检查是否是训练数据处理器（convert_train_data.py）或预测数据处理器（convert_predict_data.py）
             # 如果是，则使用原有方式（简单的数据概览、字段分析和缺失值分析）
-            if self.__class__.__name__ == 'TrainDataProcessor':
+            if self.__class__.__name__ in ['TrainDataProcessor', 'PredictDataProcessor']:
                 # 使用原有方式：只进行基本的数据分析（参考data_analyzer_prev.py）
                 analysis_results = self.analyzer.analyze_dataset(all_data, use_business_view=False)
             else:
