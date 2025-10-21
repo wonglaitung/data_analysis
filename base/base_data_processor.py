@@ -6,6 +6,9 @@ from collections import defaultdict
 import psutil
 import gc
 from abc import ABC, abstractmethod
+
+# 为避免循环导入，使用字符串检查而不是直接导入
+# from convert_train_data import TrainDataProcessor
 # 导入繁简体转换包
 try:
     from opencc import OpenCC
@@ -725,7 +728,14 @@ class BaseDataProcessor(ABC):
         print("\n=== 开始数据分析 ===")
         # 注意：这里需要子类提供analyzer属性
         if hasattr(self, 'analyzer'):
-            analysis_results = self.analyzer.analyze_dataset(all_data)
+            # 检查是否是训练数据处理器（convert_train_data.py）
+            # 如果是，则使用原有方式（简单的数据概览、字段分析和缺失值分析）
+            if self.__class__.__name__ == 'TrainDataProcessor':
+                # 使用原有方式：只进行基本的数据分析（参考data_analyzer_prev.py）
+                analysis_results = self.analyzer.analyze_dataset(all_data, use_business_view=False)
+            else:
+                # 使用修改后的方式：进行业务视角的数据分析并保存到Excel文件
+                analysis_results = self.analyzer.analyze_dataset(all_data, use_business_view=True)
             print("✅ 数据分析完成")
         else:
             print("⚠️ 未找到数据分析器，跳过数据分析")
