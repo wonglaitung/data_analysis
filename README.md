@@ -17,9 +17,11 @@
 ```
 /data/data_analysis/
 ├── add_train_label.py      # 从Excel标签文件中提取标签并添加到宽表
+├── analyze_single_file.py  # 对单个Excel文件进行数据分析
 ├── convert_train_data.py   # 主要的数据转换脚本，将Excel文件转换为宽表
 ├── convert_predict_data.py # 预测数据转换脚本，将Excel文件转换为宽表用于预测
 ├── fake_train_data.py      # 生成假的训练和测试数据的脚本
+├── gui_app.py              # 图形界面应用程序
 ├── train_model.py          # GBDT+LR模型训练脚本（仅训练，不进行预测）
 ├── train_model_dl.py       # 深度学习模型训练脚本
 ├── predict.py              # 使用训练好的模型进行预测的脚本
@@ -68,7 +70,22 @@
 
 ## 核心功能
 
-### 1. 数据处理与转换 (convert_train_data.py)
+### 1. GUI图形界面工具 (gui_app.py)
+
+为了提供更友好的用户体验，项目提供了基于Tkinter的图形界面工具，用户可以通过图形界面操作所有核心功能：
+
+- 提供直观的图形界面操作所有数据处理和模型训练功能
+- 包含训练数据转换、标签添加、模型训练、预测数据转换、模型预测、公平性检测等标签页
+- 支持通过下拉菜单选择`data_train`目录中的Excel文件进行单文件分析
+- 可设置透视表数量等参数进行数据分析
+- 集成日志输出区域，实时显示操作进度和结果
+
+启动GUI工具：
+```bash
+python gui_app.py
+```
+
+### 2. 数据处理与转换 (convert_train_data.py)
 
 - 读取`data_train/`目录下的所有Excel文件
 - 自动学习各文件的字段，分析各种维度
@@ -168,6 +185,20 @@
 - 保存到`data_train/train.csv`
 - 复制前100条数据到`data_train/test.csv`，并删除Label字段
 
+### 11. 单文件分析 (analyze_single_file.py)
+
+- 对单个Excel文件进行详细的数据分析
+- 支持通过GUI工具或命令行方式进行分析
+- 提供业务视角的数据洞察，生成多维度透视分析表
+- 可配置最大透视表组合数，控制分析复杂度
+- 生成包含图表的Excel分析报告，便于业务人员理解数据特征
+- 支持通过下拉菜单选择`data_train`目录中的Excel文件进行分析
+
+命令行使用方式：
+```bash
+python analyze_single_file.py data_train/文件名.xlsx [--max-combinations 10]
+```
+
 ## 特征类型识别机制
 
 在数据处理过程中，程序会自动识别每个字段的特征类型（连续型、类别型或文本型）。识别机制如下：
@@ -256,6 +287,14 @@ file_name,column_name,feature_type
 - `fairness_metrics.csv`: 模型公平性指标文件，包含各种公平性指标的得分
 
 ## 使用说明
+
+### 启动GUI图形界面工具（推荐）
+
+为了提供更友好的用户体验，推荐使用图形界面工具操作所有功能：
+
+```bash
+python gui_app.py
+```
 
 ### 建模阶段
 
