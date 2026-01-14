@@ -131,15 +131,19 @@ class FinanceDataAnalysisGUI:
         self.sheet_name_var = tk.StringVar(value="2024Raw")
         ttk.Entry(tab, textvariable=self.sheet_name_var, width=20).grid(row=1, column=1, sticky=tk.W, pady=5)
         
-        ttk.Label(tab, text="标签列名:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(tab, text="主键列名:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.key_column_var = tk.StringVar(value="CI No.")
+        ttk.Entry(tab, textvariable=self.key_column_var, width=20).grid(row=2, column=1, sticky=tk.W, pady=5)
+        
+        ttk.Label(tab, text="标签列名:").grid(row=3, column=0, sticky=tk.W, pady=5)
         self.label_column_var = tk.StringVar(value="本地支薪")
-        ttk.Entry(tab, textvariable=self.label_column_var, width=20).grid(row=2, column=1, sticky=tk.W, pady=5)
+        ttk.Entry(tab, textvariable=self.label_column_var, width=20).grid(row=3, column=1, sticky=tk.W, pady=5)
         
         # 样本平衡参数
-        ttk.Label(tab, text="样本平衡比例:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        ttk.Label(tab, text="样本平衡比例:").grid(row=4, column=0, sticky=tk.W, pady=5)
         self.balance_ratio_var = tk.StringVar(value="")
-        ttk.Entry(tab, textvariable=self.balance_ratio_var, width=20).grid(row=3, column=1, sticky=tk.W, pady=5)
-        ttk.Label(tab, text="（留空表示不进行平衡）").grid(row=3, column=2, sticky=tk.W, pady=5)
+        ttk.Entry(tab, textvariable=self.balance_ratio_var, width=20).grid(row=4, column=1, sticky=tk.W, pady=5)
+        ttk.Label(tab, text="（留空表示不进行平衡）").grid(row=4, column=2, sticky=tk.W, pady=5)
         
         # 参数说明
         balance_info_text = """
@@ -149,10 +153,10 @@ class FinanceDataAnalysisGUI:
 - 1   (负样本:正样本 = 1:1)
 - 10  (负样本:正样本 = 10:1)
         """.strip()
-        ttk.Label(tab, text=balance_info_text, foreground="blue").grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=5)
+        ttk.Label(tab, text=balance_info_text, foreground="blue").grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=5)
         
         # 执行按钮
-        ttk.Button(tab, text="添加标签", command=self.run_label_addition).grid(row=5, column=0, columnspan=3, pady=20)
+        ttk.Button(tab, text="添加标签", command=self.run_label_addition).grid(row=6, column=0, columnspan=3, pady=20)
         
     def create_model_training_tab(self):
         """创建模型训练标签页"""
@@ -362,6 +366,7 @@ class FinanceDataAnalysisGUI:
                 add_label_to_wide_table(
                     excel_file_path=self.label_file_var.get(),
                     sheet_name=self.sheet_name_var.get(),
+                    key_colum=self.key_column_var.get(),
                     label_column=self.label_column_var.get(),
                     balance_ratio=balance_ratio
                 )

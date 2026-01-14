@@ -41,13 +41,14 @@ def balance_samples(df, target_column='Label', positive_negative_ratio=1.0):
     
     return balanced_df
 
-def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', label_column='本地支薪', balance_ratio=None):
+def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', key_colum='CI No.', label_column='本地支薪', balance_ratio=None):
     """
     将标签添加到大宽表
     
     参数:
     excel_file_path: Excel文件路径
     sheet_name: 工作表名称，默认为'2024Raw'
+    key_colum: 主键列名，默认为'CI No.'
     label_column: 用作标签的列名，默认为'本地支薪'
     balance_ratio: 正负样本平衡比例（正样本:负样本），默认为None（不进行平衡）
     """
@@ -60,9 +61,9 @@ def add_label_to_wide_table(excel_file_path, sheet_name='2024Raw', label_column=
     df_excel = pd.read_excel(excel_file_path, sheet_name=sheet_name)
     
     # 提取需要的列并去重
-    print(f"正在处理标签数据，使用列: CI No. 和 {label_column}")
-    df_label = df_excel[['CI No.', label_column]].drop_duplicates()
-    df_label.rename(columns={'CI No.': 'Id', label_column: 'Label'}, inplace=True)
+    print(f"正在处理标签数据，使用列: {key_colum} 和 {label_column}")
+    df_label = df_excel[[key_colum, label_column]].drop_duplicates()
+    df_label.rename(columns={key_colum: 'Id', label_column: 'Label'}, inplace=True)
     
     # 处理ID列，确保数据类型正确并处理前导零问题
     # 将ID转换为字符串，去除前导零，再转换为整数
@@ -128,18 +129,19 @@ def print_usage():
     打印使用说明
     """
     print("使用方法:")
-    print("  python add_train_label.py [Excel文件路径] [工作表名称] [标签列名] [--balance-ratio 比例]")
+    print("  python add_train_label.py [Excel文件路径] [工作表名称] [主键列名] [标签列名] [--balance-ratio 比例]")
     print("")
     print("参数说明:")
     print("  Excel文件路径    Excel文件的路径，默认从config/label_key.csv读取")
     print("  工作表名称       Excel文件中的工作表名称，默认为'2024Raw'")
+    print("  主键列名         用于关联的主键列名，默认为'CI No.'")
     print("  标签列名         用作标签的列名，默认为'本地支薪'")
     print("  --balance-ratio  正负样本平衡比例（正样本:负样本），默认为None（不进行平衡）")
     print("")
     print("示例:")
     print("  python add_train_label.py")
     print("  python add_train_label.py --balance-ratio 1.0")
-    print("  python add_train_label.py ./label_train/标签文件.xlsx 2024Raw 本地支薪 --balance-ratio 0.5")
+    print("  python add_train_label.py ./label_train/标签文件.xlsx 2024Raw 'CI No.' 本地支薪 --balance-ratio 0.5")
 
 if __name__ == "__main__":
     # 检查是否有--help参数
@@ -191,7 +193,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 2:
         sheet_name = sys.argv[2]
     if len(sys.argv) > 3:
-        label_column = sys.argv[3]
+        key_colum = sys.argv[3]
+    if len(sys.argv) > 4:
+        label_column = sys.argv[4]
     
     # 执行函数
-    result_df = add_label_to_wide_table(excel_file_path, sheet_name, label_column, balance_ratio)
+    result_df = add_label_to_wide_table(excel_file_path, sheet_name, key_colum, label_column, balance_ratio)
