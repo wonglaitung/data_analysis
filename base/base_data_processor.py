@@ -357,13 +357,16 @@ class BaseDataProcessor(ABC):
                     pk = None
                     if (file_name, sheet_name) in primary_key_mapping:
                         pk = primary_key_mapping[(file_name, sheet_name)].strip()
-                    elif (file_name, '') in primary_key_mapping:
-                        pk = primary_key_mapping[(file_name, '')].strip()
+                    elif (file_name, 'nan') in primary_key_mapping:
+                        pk = primary_key_mapping[(file_name, 'nan')].strip()
                     elif self.auto_detect_key(df):
                         pk = self.auto_detect_key(df)
                     else:
                         pk = 'index'
                         df[pk] = df.index.astype(str)
+
+                    if safe_prefix not in pk:
+                        pk = f"{safe_prefix}_{pk}"
 
                     pk_lower = pk.lower()
                     if pk_lower in df.columns:
